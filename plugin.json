@@ -8,12 +8,15 @@
   "version": "0.0.1",
   "repo": "https://github.com/soksak-ai/soksak-plugin-terminal.git",
   "description": {
-    "ko": "새 탭(+) 메뉴에 터미널을 추가",
-    "en": "Adds Terminal to the new-tab (+) menu"
+    "ko": "xterm.js 터미널 패널 — 코어 PTY 를 직접 구동.",
+    "en": "xterm.js terminal pane driven by core PTY."
   },
   "entry": "main.js",
   "permissions": [
-    "programs"
+    "ui",
+    "commands",
+    "programs",
+    "pty"
   ],
   "contributes": {
     "programs": [
@@ -23,7 +26,54 @@
           "ko": "터미널",
           "en": "Terminal"
         },
-        "kind": "terminal"
+        "kind": "view",
+        "view": "content"
+      }
+    ],
+    "views": [
+      {
+        "id": "content",
+        "title": {
+          "ko": "터미널",
+          "en": "Terminal"
+        },
+        "icon": ">_",
+        "placements": [
+          "content"
+        ],
+        "defaultPlacement": "content"
+      }
+    ],
+    "commands": [
+      {
+        "name": "ping",
+        "title": {
+          "ko": "플러그인 적재/버전 확인(E2E)",
+          "en": "Ping (load/version check)"
+        }
+      },
+      {
+        "name": "send",
+        "title": {
+          "ko": "텍스트 전송",
+          "en": "Send Text"
+        }
+      },
+      {
+        "name": "clear",
+        "title": {
+          "ko": "지우기",
+          "en": "Clear"
+        }
+      }
+    ],
+    "nodes": [
+      {
+        "id": "terminal",
+        "description": {
+          "ko": "xterm.js 터미널 컨테이너",
+          "en": "xterm.js terminal container"
+        }
       }
     ]
   }

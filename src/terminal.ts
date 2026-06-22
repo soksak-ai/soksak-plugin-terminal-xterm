@@ -1,0 +1,251 @@
+// xterm.js 터미널 — app.pty.* 로 코어 PTY 구동.
+// invoke() / Channel / 코어 내부 모듈 비의존.
+import { Terminal } from "@xterm/xterm";
+import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
+import { ClipboardAddon } from "@xterm/addon-clipboard";
+import { WebglAddon } from "@xterm/addon-webgl";
+import type { PtyApi, Disposable } from "./host";
+
+// VSCode FlowControlConstants.CharCountAckSize 와 동일.
+const FLOW_ACK_SIZE = 5000;
+
+// darkTheme (코어 소스 비의존).
+const DARK_THEME = {
+  foreground: "#cccccc",
+  background: "#1e1e1e",
+  cursor: "#ffffff",
+  cursorAccent: "#1e1e1e",
+  selectionBackground: "#264f78",
+  selectionInactiveBackground: "#3a3d41",
+  black: "#000000",
+  red: "#cd3131",
+  green: "#0dbc79",
+  yellow: "#e5e510",
+  blue: "#2472c8",
+  magenta: "#bc3fbc",
+  cyan: "#11a8cd",
+  white: "#e5e5e5",
+  brightBlack: "#666666",
+  brightRed: "#f14c4c",
+  brightGreen: "#23d18b",
+  brightYellow: "#f5f543",
+  brightBlue: "#3b8eea",
+  brightMagenta: "#d670d6",
+  brightCyan: "#29b8db",
+  brightWhite: "#ffffff",
+};
+
+export interface TerminalInstance {
+  /** xterm.js 가 마운트된 컨테이너 div. */
+  element: HTMLElement;
+  /** PTY 세션 정리 + xterm dispose. */
+  dispose(): Promise<void>;
+  /** xterm 포커스. */
+  focus(): void;
+  /** 텍스트를 PTY 로 직접 전송. */
+  sendInput(data: string): void;
+  /** 화면 + 스크롤백 텍스트 직렬화(끝에서 lines 줄, 기본=전체). */
+  readBuffer(lines?: number): string;
+  /** xterm 화면 지우기. */
+  clear(): void;
+}
+
+export async function createTerminalInstance(opts: {
+  pty: PtyApi;
+  cwd?: string;
+  shell?: string;
+  paneId?: number | null;
+}): Promise<TerminalInstance> {
+  const { pty, cwd, shell, paneId } = opts;
+
+  // 폰트 선로드 — open() 전에 보장하지 않으면 셀 정렬이 깨진다.
+  if (document.fonts?.ready) {
+    try {
+      await document.fonts.ready;
+    } catch {
+      /* 폰트 API 미지원 시 무시 */
+    }
+  }
+
+  const term = new Terminal({
+    allowProposedApi: true,
+    fontFamily:
+      '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace',
+    fontSize: 13,
+    lineHeight: 1.0,
+    letterSpacing: 0,
+    scrollback: 10000,
+    cursorBlink: true,
+    cursorStyle: "block",
+    drawBoldTextInBrightColors: true,
+    minimumContrastRatio: 1,
+    theme: DARK_THEME,
+  });
+
+  // 애드온: Unicode11, WebLinks, Clipboard
+  term.loadAddon(new Unicode11Addon());
+  term.unicode.activeVersion = "11";
+  term.loadAddon(
+    new WebLinksAddon((_event, uri) => {
+      // 플러그인 컨텍스트엔 opener 없음 → window.open 으로 OS 기본 브라우저 위임.
+      window.open(uri, "_blank");
+    }),
+  );
+  term.loadAddon(new ClipboardAddon());
+
+  // 컨테이너 div 생성 + xterm 마운트
+  const container = document.createElement("div");
+  container.className = "sk-term-xterm";
+  container.setAttribute("data-node", "terminal");
+  container.style.cssText = "width:100%;height:100%;overflow:hidden;";
+
+  term.open(container);
+
+  // WebGL 렌더러(실패 시 DOM 폴백)
+  let webgl: WebglAddon | undefined;
+  try {
+    const addon = new WebglAddon();
+    addon.onContextLoss(() => {
+      addon.dispose();
+      if (webgl === addon) webgl = undefined;
+    });
+    term.loadAddon(addon);
+    webgl = addon;
+  } catch (e) {
+    console.warn("[sk-terminal] WebGL 렌더러 사용 불가 — DOM 폴백:", e);
+    webgl = undefined;
+  }
+
+  // 직접 fit — 코어 createTerminal.ts 와 동일 방식(FitAddon 의 14px 스크롤바 여백 없음).
+  const fitTerminal = () => {
+    if (container.clientWidth === 0 || container.clientHeight === 0) return;
+    const core = (term as unknown as { _core?: { _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } } } })._core;
+    const cell = core?._renderService?.dimensions?.css?.cell;
+    if (!cell?.width || !cell?.height) return;
+    const cols = Math.max(2, Math.floor(container.clientWidth / cell.width));
+    const rows = Math.max(1, Math.floor(container.clientHeight / cell.height));
+    if (cols !== term.cols || rows !== term.rows) {
+      term.resize(cols, rows);
+    }
+  };
+
+  fitTerminal();
+  requestAnimationFrame(() => {
+    try { fitTerminal(); } catch { /* 0 크기 컨테이너 무시 */ }
+  });
+
+  // PTY 스폰 — spawn() 전에 disposed 되면 id 를 즉시 닫는다(async race 처리).
+  let disposed = false;
+  let ptyId = 0;
+  let ackPending = 0;
+
+  const spawnPromise = pty.spawn({
+    cols: term.cols,
+    rows: term.rows,
+    cwd: cwd ?? undefined,
+    shell: shell ?? undefined,
+    paneId: typeof paneId === "number" ? paneId : undefined,
+  });
+
+  // PTY 출력 구독 : onData 는 스폰 전 버퍼를 보유하므로 순서 보장.
+  // ptyId 가 확정되기 전에 등록할 수 없어 spawn 완료 후 연결.
+  let dataSub: Disposable | null = null;
+
+  ptyId = await spawnPromise;
+  if (disposed) {
+    // 언마운트가 spawn 보다 먼저 일어난 경우 — 즉시 닫는다.
+    pty.close(ptyId).catch(() => {});
+    term.dispose();
+    webgl?.dispose();
+    return {
+      element: container,
+      dispose: async () => {},
+      focus: () => {},
+      sendInput: () => {},
+      readBuffer: () => "",
+      clear: () => {},
+    };
+  }
+
+  dataSub = pty.onData(ptyId, (bytes: Uint8Array) => {
+    term.write(bytes, () => {
+      ackPending += bytes.length;
+      if (ackPending >= FLOW_ACK_SIZE) {
+        pty.ack(ptyId, ackPending).catch(() => {});
+        ackPending = 0;
+      }
+    });
+  });
+
+  // 입력: xterm → PTY
+  const inputDisp = term.onData((data: string) => {
+    if (ptyId !== 0) {
+      pty.write(ptyId, data).catch(() => {});
+    }
+  });
+
+  // ResizeObserver: 컨테이너 크기 변화 → fit → PTY resize.
+  const FIT_THROTTLE_MS = 50;
+  let lastFitAt = 0;
+  let fitTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const safeFit = () => {
+    try {
+      lastFitAt = performance.now();
+      const before = `${term.cols}x${term.rows}`;
+      fitTerminal();
+      if (`${term.cols}x${term.rows}` !== before && ptyId !== 0) {
+        term.refresh(0, term.rows - 1);
+        pty.resize(ptyId, term.cols, term.rows).catch(() => {});
+      }
+    } catch { /* 0 크기 등 무시 */ }
+  };
+
+  const scheduleFit = () => {
+    const since = performance.now() - lastFitAt;
+    if (since >= FIT_THROTTLE_MS) {
+      if (fitTimer !== undefined) { clearTimeout(fitTimer); fitTimer = undefined; }
+      safeFit();
+    } else if (fitTimer === undefined) {
+      fitTimer = setTimeout(() => { fitTimer = undefined; safeFit(); }, FIT_THROTTLE_MS - since);
+    }
+  };
+
+  const resizeObserver = new ResizeObserver(() => scheduleFit());
+  resizeObserver.observe(container);
+
+  const dispose = async () => {
+    disposed = true;
+    clearTimeout(fitTimer as unknown as number);
+    resizeObserver.disconnect();
+    inputDisp.dispose();
+    dataSub?.dispose();
+    if (ptyId !== 0) {
+      await pty.close(ptyId).catch(() => {});
+    }
+    webgl?.dispose();
+    term.dispose();
+  };
+
+  return {
+    element: container,
+    dispose,
+    focus: () => term.focus(),
+    sendInput: (data: string) => {
+      if (ptyId !== 0) pty.write(ptyId, data).catch(() => {});
+    },
+    readBuffer: (lines?: number) => {
+      const buf = term.buffer.active;
+      const line = (i: number) => buf.getLine(i)?.translateToString(true) ?? "";
+      let end = buf.length - 1;
+      while (end >= 0 && line(end) === "") end--;
+      if (end < 0) return "";
+      const want = lines && lines > 0 ? Math.min(lines, end + 1) : end + 1;
+      const out: string[] = [];
+      for (let i = end + 1 - want; i <= end; i++) out.push(line(i));
+      return out.join("\n");
+    },
+    clear: () => term.clear(),
+  };
+}
