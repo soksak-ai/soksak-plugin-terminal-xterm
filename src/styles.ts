@@ -12,7 +12,9 @@ export const PLUGIN_CSS = `
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #1e1e1e;
+  /* 그리드 잔여(우/하단) 배경 = 앱 테마 --bg. xterm theme.background 와 동일 값으로
+     맞춰야 한다(theme.ts 배경 규칙). 미설정 시 다크 폴백. */
+  background: var(--bg, #1e1e1e);
 }
 .sk-term-xterm {
   flex: 1 1 auto;
@@ -27,7 +29,7 @@ export const PLUGIN_CSS = `
   padding: 0;
 }
 .sk-term-xterm .xterm .xterm-viewport {
-  background-color: #1e1e1e !important;
+  background-color: var(--bg, #1e1e1e) !important;
 }
 `;
 
