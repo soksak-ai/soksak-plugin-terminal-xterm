@@ -14329,79 +14329,6 @@ var xr2 = class extends B3 {
   }
 };
 
-// src/theme.ts
-var backgrounds = {
-  dark: "#1e1e1e",
-  light: "#ffffff"
-};
-var darkPalette = {
-  foreground: "#cccccc",
-  background: backgrounds.dark,
-  cursor: "#ffffff",
-  cursorAccent: "#1e1e1e",
-  selectionBackground: "#264f78",
-  selectionInactiveBackground: "#3a3d41",
-  black: "#000000",
-  red: "#cd3131",
-  green: "#0dbc79",
-  yellow: "#e5e510",
-  blue: "#2472c8",
-  magenta: "#bc3fbc",
-  cyan: "#11a8cd",
-  white: "#e5e5e5",
-  brightBlack: "#666666",
-  brightRed: "#f14c4c",
-  brightGreen: "#23d18b",
-  brightYellow: "#f5f543",
-  brightBlue: "#3b8eea",
-  brightMagenta: "#d670d6",
-  brightCyan: "#29b8db",
-  brightWhite: "#ffffff"
-};
-var lightPalette = {
-  foreground: "#333333",
-  background: backgrounds.light,
-  cursor: "#000000",
-  cursorAccent: "#ffffff",
-  selectionBackground: "#add6ff",
-  selectionInactiveBackground: "#e5ebf1",
-  black: "#000000",
-  red: "#cd3131",
-  green: "#00bc00",
-  yellow: "#949800",
-  blue: "#0451a5",
-  magenta: "#bc05bc",
-  cyan: "#0598bc",
-  white: "#555555",
-  brightBlack: "#666666",
-  brightRed: "#cd3131",
-  brightGreen: "#14ce14",
-  brightYellow: "#b5ba00",
-  brightBlue: "#0451a5",
-  brightMagenta: "#bc05bc",
-  brightCyan: "#0598bc",
-  brightWhite: "#a5a5a5"
-};
-var palettes = {
-  dark: darkPalette,
-  light: lightPalette
-};
-function currentMode() {
-  const m2 = typeof document !== "undefined" ? document.documentElement.dataset.themeMode : void 0;
-  return m2 === "light" ? "light" : "dark";
-}
-function appBackground() {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") {
-    return "";
-  }
-  return getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
-}
-function themeFor(mode = currentMode()) {
-  const base = palettes[mode];
-  const bg = appBackground() || backgrounds[mode];
-  return { ...base, background: bg };
-}
-
 // src/vendor/xterm-addon-webkit-ime/index.ts
 function isHangul(text) {
   if (!text) return false;
@@ -14660,30 +14587,104 @@ var WebkitImeAddon = class {
   }
 };
 
+// src/theme.ts
+var backgrounds = {
+  dark: "#1e1e1e",
+  light: "#ffffff"
+};
+var darkPalette = {
+  foreground: "#cccccc",
+  background: backgrounds.dark,
+  cursor: "#ffffff",
+  cursorAccent: "#1e1e1e",
+  selectionBackground: "#264f78",
+  selectionInactiveBackground: "#3a3d41",
+  black: "#000000",
+  red: "#cd3131",
+  green: "#0dbc79",
+  yellow: "#e5e510",
+  blue: "#2472c8",
+  magenta: "#bc3fbc",
+  cyan: "#11a8cd",
+  white: "#e5e5e5",
+  brightBlack: "#666666",
+  brightRed: "#f14c4c",
+  brightGreen: "#23d18b",
+  brightYellow: "#f5f543",
+  brightBlue: "#3b8eea",
+  brightMagenta: "#d670d6",
+  brightCyan: "#29b8db",
+  brightWhite: "#ffffff"
+};
+var lightPalette = {
+  foreground: "#333333",
+  background: backgrounds.light,
+  cursor: "#000000",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#add6ff",
+  selectionInactiveBackground: "#e5ebf1",
+  black: "#000000",
+  red: "#cd3131",
+  green: "#00bc00",
+  yellow: "#949800",
+  blue: "#0451a5",
+  magenta: "#bc05bc",
+  cyan: "#0598bc",
+  white: "#555555",
+  brightBlack: "#666666",
+  brightRed: "#cd3131",
+  brightGreen: "#14ce14",
+  brightYellow: "#b5ba00",
+  brightBlue: "#0451a5",
+  brightMagenta: "#bc05bc",
+  brightCyan: "#0598bc",
+  brightWhite: "#a5a5a5"
+};
+var palettes = {
+  dark: darkPalette,
+  light: lightPalette
+};
+function currentMode() {
+  const m2 = typeof document !== "undefined" ? document.documentElement.dataset.themeMode : void 0;
+  return m2 === "light" ? "light" : "dark";
+}
+function appBackground() {
+  if (typeof document === "undefined" || typeof getComputedStyle !== "function") {
+    return "";
+  }
+  return getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+}
+function themeFor(mode = currentMode()) {
+  const base = palettes[mode];
+  const bg = appBackground() || backgrounds[mode];
+  return { ...base, background: bg };
+}
+
 // src/terminal.ts
 var FLOW_ACK_SIZE = 5e3;
-var DEFAULT_FONT = '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace';
-async function createTerminalInstance(opts) {
-  const { pty, cwd, shell, paneId, settings } = opts;
+async function createTerminal(options) {
+  const pty = options.pty;
   if (document.fonts?.ready) {
     try {
       await document.fonts.ready;
     } catch {
     }
   }
+  const s15 = options.settings;
   const term = new Dl({
     allowProposedApi: true,
-    fontFamily: settings?.fontFamily || DEFAULT_FONT,
-    fontSize: settings?.fontSize ?? 13,
+    fontFamily: s15?.fontFamily ?? '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace',
+    fontSize: s15?.fontSize ?? 13,
     lineHeight: 1,
     letterSpacing: 0,
-    scrollback: settings?.scrollback ?? 1e4,
-    cursorBlink: settings?.cursorBlink ?? true,
-    cursorStyle: settings?.cursorStyle ?? "block",
+    scrollback: s15?.scrollback ?? 1e4,
+    cursorBlink: s15?.cursorBlink ?? true,
+    cursorStyle: s15?.cursorStyle ?? "block",
     drawBoldTextInBrightColors: true,
     minimumContrastRatio: 1,
-    // 앱 테마(dataset.themeMode + :root --bg)를 상속. 아래 MutationObserver 가 라이브 추종.
-    theme: themeFor()
+    // 테마 기본값은 앱 테마 계약(documentElement.dataset.themeMode + :root --bg)을
+    // themeFor() 로 상속한다.
+    theme: options.theme ?? themeFor()
   });
   term.loadAddon(new Ke());
   term.unicode.activeVersion = "11";
@@ -14711,7 +14712,7 @@ async function createTerminalInstance(opts) {
         term.loadAddon(addon);
         webgl = addon;
       } catch (e) {
-        console.warn("[sk-terminal] WebGL \uB80C\uB354\uB7EC \uC0AC\uC6A9 \uBD88\uAC00 \u2014 DOM \uC720\uC9C0:", e);
+        console.warn("WebGL \uB80C\uB354\uB7EC \uC0AC\uC6A9 \uBD88\uAC00 \u2014 DOM \uC720\uC9C0:", e);
         webgl = void 0;
       }
     } else if (webgl) {
@@ -14719,7 +14720,7 @@ async function createTerminalInstance(opts) {
       webgl = void 0;
     }
   };
-  setRenderer(settings?.xtermRenderer ?? "webgl");
+  setRenderer(s15?.xtermRenderer ?? "dom");
   const applyTheme = () => {
     term.options.theme = themeFor();
     webgl?.clearTextureAtlas();
@@ -14731,10 +14732,14 @@ async function createTerminalInstance(opts) {
     attributeFilter: ["data-theme-mode", "style"]
   });
   const fitTerminal = () => {
-    if (container.clientWidth === 0 || container.clientHeight === 0) return;
+    if (container.clientWidth === 0 || container.clientHeight === 0) {
+      return;
+    }
     const core = term._core;
     const cell = core?._renderService?.dimensions?.css?.cell;
-    if (!cell?.width || !cell?.height) return;
+    if (!cell?.width || !cell?.height) {
+      return;
+    }
     const cols = Math.max(2, Math.floor(container.clientWidth / cell.width));
     const rows = Math.max(1, Math.floor(container.clientHeight / cell.height));
     if (cols !== term.cols || rows !== term.rows) {
@@ -14748,12 +14753,14 @@ async function createTerminalInstance(opts) {
     } catch {
     }
   });
-  let disposed = false;
-  let ptyId = 0;
+  let termId = 0;
   let ackPending = 0;
+  let disposed = false;
+  const imeDebug = false ? imeTrace : void 0;
   const writeToPty = (data) => {
-    if (ptyId !== 0) {
-      pty.write(ptyId, data).catch(() => {
+    imeDebug?.(`PTY <- ${JSON.stringify(data)}`);
+    if (termId !== 0) {
+      pty.write(termId, data).catch(() => {
       });
     }
   };
@@ -14769,7 +14776,7 @@ async function createTerminalInstance(opts) {
     }
     return true;
   });
-  const ime = new WebkitImeAddon({ onData: writeToPty });
+  const ime = new WebkitImeAddon({ onData: writeToPty, onDebug: imeDebug });
   term.loadAddon(ime);
   const onPaste = (e) => {
     const dt3 = e.clipboardData;
@@ -14785,17 +14792,28 @@ async function createTerminalInstance(opts) {
     }
   };
   container.addEventListener("paste", onPaste, true);
-  const spawnPromise = pty.spawn({
+  let dataSub = null;
+  const wireOutput = () => {
+    dataSub = pty.onData(termId, (bytes) => {
+      term.write(bytes, () => {
+        ackPending += bytes.length;
+        if (ackPending >= FLOW_ACK_SIZE && termId !== 0) {
+          pty.ack(termId, ackPending).catch(() => {
+          });
+          ackPending = 0;
+        }
+      });
+    });
+  };
+  termId = await pty.spawn({
     cols: term.cols,
     rows: term.rows,
-    cwd: cwd ?? void 0,
-    shell: shell ?? void 0,
-    paneId: paneId ?? void 0
+    cwd: options.cwd ?? void 0,
+    shell: options.shell ?? void 0,
+    paneId: options.paneId ?? void 0
   });
-  let dataSub = null;
-  ptyId = await spawnPromise;
   if (disposed) {
-    pty.close(ptyId).catch(() => {
+    pty.close(termId).catch(() => {
     });
     container.removeEventListener("paste", onPaste, true);
     themeObserver.disconnect();
@@ -14820,18 +14838,15 @@ async function createTerminalInstance(opts) {
       }
     };
   }
-  dataSub = pty.onData(ptyId, (bytes) => {
-    term.write(bytes, () => {
-      ackPending += bytes.length;
-      if (ackPending >= FLOW_ACK_SIZE) {
-        pty.ack(ptyId, ackPending).catch(() => {
-        });
-        ackPending = 0;
-      }
-    });
-  });
-  const inputDisp = term.onData((data) => {
+  wireOutput();
+  if (options.initialCommand) {
+    writeToPty(
+      options.pasteCommandOnly ? options.initialCommand : `${options.initialCommand}\r`
+    );
+  }
+  const dataSubInput = term.onData((data) => {
     const skip = ime.shouldSkip(data);
+    imeDebug?.(`TERM.onData ${JSON.stringify(data)} skip=${skip}`);
     if (!skip) {
       if (data.charCodeAt(0) !== 27) ime.flushPending();
       writeToPty(data);
@@ -14841,8 +14856,8 @@ async function createTerminalInstance(opts) {
   let lastFitAt = 0;
   let fitTimer;
   const syncPty = () => {
-    if (ptyId !== 0) {
-      pty.resize(ptyId, term.cols, term.rows).catch(() => {
+    if (termId !== 0) {
+      pty.resize(termId, term.cols, term.rows).catch(() => {
       });
     }
   };
@@ -14867,7 +14882,7 @@ async function createTerminalInstance(opts) {
       }
       safeFit();
     } else if (fitTimer === void 0) {
-      fitTimer = setTimeout(() => {
+      fitTimer = window.setTimeout(() => {
         fitTimer = void 0;
         safeFit();
       }, FIT_THROTTLE_MS - since);
@@ -14892,7 +14907,9 @@ async function createTerminalInstance(opts) {
   resizeObserver.observe(container);
   let dprCleanup;
   const armDprListener = () => {
-    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const mq = window.matchMedia(
+      `(resolution: ${window.devicePixelRatio}dppx)`
+    );
     const handler = () => {
       term.refresh(0, term.rows - 1);
       doResize(true);
@@ -14903,17 +14920,16 @@ async function createTerminalInstance(opts) {
     dprCleanup = () => mq.removeEventListener("change", handler);
   };
   armDprListener();
-  const dispose = async () => {
-    disposed = true;
+  const dispose = () => {
     container.removeEventListener("paste", onPaste, true);
-    clearTimeout(fitTimer);
     resizeObserver.disconnect();
+    clearTimeout(fitTimer);
     dprCleanup?.();
-    themeObserver.disconnect();
-    inputDisp.dispose();
+    dataSubInput.dispose();
     dataSub?.dispose();
-    if (ptyId !== 0) {
-      await pty.close(ptyId).catch(() => {
+    themeObserver.disconnect();
+    if (termId !== 0) {
+      pty.close(termId).catch(() => {
       });
     }
     webgl?.dispose();
@@ -14921,12 +14937,11 @@ async function createTerminalInstance(opts) {
   };
   return {
     element: container,
-    dispose,
-    focus: () => term.focus(),
     // 포커스/노출/이동(appendChild) 직후 호출되는 경로 — 지금 맞춰야 한다.
     fit: () => doResize(true),
-    sendInput: (data) => writeToPty(data),
+    focus: () => term.focus(),
     paste: (text) => term.paste(text),
+    sendInput: (data) => writeToPty(data),
     readBuffer: (lines) => {
       const buf = term.buffer.active;
       const line = (i8) => buf.getLine(i8)?.translateToString(true) ?? "";
@@ -14939,18 +14954,28 @@ async function createTerminalInstance(opts) {
       return out.join("\n");
     },
     clear: () => term.clear(),
-    applySettings: (s15) => {
-      if (s15.fontFamily) term.options.fontFamily = s15.fontFamily;
-      if (s15.fontSize != null) term.options.fontSize = s15.fontSize;
-      if (s15.scrollback != null) term.options.scrollback = s15.scrollback;
-      if (s15.cursorBlink != null) term.options.cursorBlink = s15.cursorBlink;
-      if (s15.cursorStyle) term.options.cursorStyle = s15.cursorStyle;
-      if (s15.xtermRenderer) setRenderer(s15.xtermRenderer);
+    applySettings: (next) => {
+      if (next.fontFamily) term.options.fontFamily = next.fontFamily;
+      if (next.fontSize != null) term.options.fontSize = next.fontSize;
+      if (next.cursorBlink != null) term.options.cursorBlink = next.cursorBlink;
+      if (next.cursorStyle) term.options.cursorStyle = next.cursorStyle;
+      if (next.scrollback != null) term.options.scrollback = next.scrollback;
+      if (next.xtermRenderer) setRenderer(next.xtermRenderer);
       webgl?.clearTextureAtlas();
       doResize(true);
       term.refresh(0, term.rows - 1);
-    }
+    },
+    dispose: async () => dispose()
   };
+}
+async function createTerminalInstance(opts) {
+  return createTerminal({
+    pty: opts.pty,
+    cwd: opts.cwd,
+    shell: opts.shell,
+    paneId: opts.paneId ?? void 0,
+    settings: opts.settings
+  });
 }
 
 // src/commands.ts
