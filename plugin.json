@@ -32,20 +32,20 @@
       "key": "xtermRenderer",
       "type": "enum",
       "enum": [
-        "webgl",
-        "dom"
+        "dom",
+        "webgl"
       ],
       "enumLabels": [
         {
-          "ko": "WebGL (GPU)",
-          "en": "WebGL (GPU)"
-        },
-        {
           "ko": "DOM",
           "en": "DOM"
+        },
+        {
+          "ko": "WebGL (GPU)",
+          "en": "WebGL (GPU)"
         }
       ],
-      "default": "webgl",
+      "default": "dom",
       "title": {
         "ko": "터미널 렌더러",
         "en": "Terminal renderer"
