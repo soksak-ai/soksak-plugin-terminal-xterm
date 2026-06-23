@@ -60,6 +60,9 @@ export interface TermSettings {
   scrollback?: number;
   cursorBlink?: boolean;
   cursorStyle?: "block" | "underline" | "bar";
+  // xterm 렌더러 백엔드. webgl=GPU(처리량 우선, 기본). dom=리사이즈 정확성(WKWebView 합성 stretch 회피).
+  // dom/webgl 은 xterm 구현 전용 개념이라 xterm 스코프로 명명한다.
+  xtermRenderer?: "webgl" | "dom";
 }
 
 const DEFAULT_FONT =
@@ -117,20 +120,31 @@ export async function createTerminalInstance(opts: {
 
   term.open(container);
 
-  // WebGL 렌더러(실패 시 DOM 폴백)
+  // 렌더러: 설정(xtermRenderer)으로 WebGL(기본) ↔ DOM 라이브 전환. 애드온 미적재 = 내장 DOM
+  // 렌더러. WebGL addon 은 dispose 시 DOM 으로 복귀하므로 런타임 전환이 안전하다(컨텍스트 손실
+  // 폴백과 동일 경로). dom 은 macOS WKWebView 라이브 리사이즈에서 글자 stretch 가 없어 정확하다.
   let webgl: WebglAddon | undefined;
-  try {
-    const addon = new WebglAddon();
-    addon.onContextLoss(() => {
-      addon.dispose();
-      if (webgl === addon) webgl = undefined;
-    });
-    term.loadAddon(addon);
-    webgl = addon;
-  } catch (e) {
-    console.warn("[sk-terminal] WebGL 렌더러 사용 불가 — DOM 폴백:", e);
-    webgl = undefined;
-  }
+  const setRenderer = (mode: "webgl" | "dom") => {
+    if (mode === "webgl") {
+      if (webgl) return; // 이미 WebGL
+      try {
+        const addon = new WebglAddon();
+        addon.onContextLoss(() => {
+          addon.dispose();
+          if (webgl === addon) webgl = undefined; // 컨텍스트 손실 → DOM 폴백
+        });
+        term.loadAddon(addon);
+        webgl = addon;
+      } catch (e) {
+        console.warn("[sk-terminal] WebGL 렌더러 사용 불가 — DOM 유지:", e);
+        webgl = undefined;
+      }
+    } else if (webgl) {
+      webgl.dispose(); // → xterm 내장 DOM 렌더러로 복귀
+      webgl = undefined;
+    }
+  };
+  setRenderer(settings?.xtermRenderer ?? "webgl");
 
   // 직접 fit — 코어 createTerminal.ts 와 동일 방식(FitAddon 의 14px 스크롤바 여백 없음).
   const fitTerminal = () => {
@@ -270,11 +284,13 @@ export async function createTerminalInstance(opts: {
       if (s.scrollback != null) term.options.scrollback = s.scrollback;
       if (s.cursorBlink != null) term.options.cursorBlink = s.cursorBlink;
       if (s.cursorStyle) term.options.cursorStyle = s.cursorStyle;
+      if (s.xtermRenderer) setRenderer(s.xtermRenderer); // 렌더러 라이브 전환(변화 없으면 no-op)
       try {
         fitTerminal();
       } catch {
         /* 0 크기 컨테이너 무시 */
       }
+      term.refresh(0, term.rows - 1); // 렌더러 전환·설정 변경 후 전체 재페인트
     },
   };
 }

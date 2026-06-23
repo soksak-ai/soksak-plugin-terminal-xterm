@@ -20,6 +20,38 @@
   ],
   "configuration": [
     {
+      "key": "shell",
+      "type": "string",
+      "default": "",
+      "title": {
+        "ko": "셸",
+        "en": "Shell"
+      }
+    },
+    {
+      "key": "xtermRenderer",
+      "type": "enum",
+      "enum": [
+        "webgl",
+        "dom"
+      ],
+      "enumLabels": [
+        {
+          "ko": "WebGL (GPU)",
+          "en": "WebGL (GPU)"
+        },
+        {
+          "ko": "DOM",
+          "en": "DOM"
+        }
+      ],
+      "default": "webgl",
+      "title": {
+        "ko": "터미널 렌더러",
+        "en": "Terminal renderer"
+      }
+    },
+    {
       "key": "fontFamily",
       "type": "string",
       "default": "\"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", Menlo, Consolas, \"Courier New\", monospace",

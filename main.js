@@ -14389,18 +14389,27 @@ async function createTerminalInstance(opts) {
   container.style.cssText = "width:100%;height:100%;overflow:hidden;";
   term.open(container);
   let webgl;
-  try {
-    const addon = new xr2();
-    addon.onContextLoss(() => {
-      addon.dispose();
-      if (webgl === addon) webgl = void 0;
-    });
-    term.loadAddon(addon);
-    webgl = addon;
-  } catch (e) {
-    console.warn("[sk-terminal] WebGL \uB80C\uB354\uB7EC \uC0AC\uC6A9 \uBD88\uAC00 \u2014 DOM \uD3F4\uBC31:", e);
-    webgl = void 0;
-  }
+  const setRenderer = (mode) => {
+    if (mode === "webgl") {
+      if (webgl) return;
+      try {
+        const addon = new xr2();
+        addon.onContextLoss(() => {
+          addon.dispose();
+          if (webgl === addon) webgl = void 0;
+        });
+        term.loadAddon(addon);
+        webgl = addon;
+      } catch (e) {
+        console.warn("[sk-terminal] WebGL \uB80C\uB354\uB7EC \uC0AC\uC6A9 \uBD88\uAC00 \u2014 DOM \uC720\uC9C0:", e);
+        webgl = void 0;
+      }
+    } else if (webgl) {
+      webgl.dispose();
+      webgl = void 0;
+    }
+  };
+  setRenderer(settings?.xtermRenderer ?? "webgl");
   const fitTerminal = () => {
     if (container.clientWidth === 0 || container.clientHeight === 0) return;
     const core = term._core;
@@ -14539,10 +14548,12 @@ async function createTerminalInstance(opts) {
       if (s15.scrollback != null) term.options.scrollback = s15.scrollback;
       if (s15.cursorBlink != null) term.options.cursorBlink = s15.cursorBlink;
       if (s15.cursorStyle) term.options.cursorStyle = s15.cursorStyle;
+      if (s15.xtermRenderer) setRenderer(s15.xtermRenderer);
       try {
         fitTerminal();
       } catch {
       }
+      term.refresh(0, term.rows - 1);
     }
   };
 }
@@ -14633,15 +14644,18 @@ var plugin_entry_default = {
                 fontSize: all.fontSize,
                 scrollback: all.scrollback,
                 cursorBlink: all.cursorBlink,
-                cursorStyle: all.cursorStyle
+                cursorStyle: all.cursorStyle,
+                xtermRenderer: all.xtermRenderer
               };
             };
+            const shell = app.settings?.get?.("shell") ?? "";
             const unSettings = app.settings?.onChange?.(
               () => termInst?.applySettings(readSettings())
             );
             createTerminalInstance({
               pty: app.pty,
               cwd: vctx.root ?? void 0,
+              shell: shell || void 0,
               paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || void 0 : vctx.paneId ?? void 0,
               settings: readSettings()
             }).then((inst) => {

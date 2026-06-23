@@ -49,8 +49,11 @@ export default {
                   | "underline"
                   | "bar"
                   | undefined,
+                xtermRenderer: all.xtermRenderer as "webgl" | "dom" | undefined,
               };
             };
+            // 셸 경로("" = 시스템 기본 $SHELL). spawn 시점 1회 적용(런타임 변경은 새 터미널부터).
+            const shell = (app.settings?.get?.("shell") as string | undefined) ?? "";
             // 값 변경 시 라이브 재적용(폴링 없음). 해지는 dispose 에서.
             const unSettings = app.settings?.onChange?.(() =>
               termInst?.applySettings(readSettings()),
@@ -59,6 +62,7 @@ export default {
             createTerminalInstance({
               pty: app.pty,
               cwd: vctx.root ?? undefined,
+              shell: shell || undefined,
               paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || undefined : (vctx.paneId ?? undefined),
               settings: readSettings(),
             }).then((inst) => {
