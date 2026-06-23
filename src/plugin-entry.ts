@@ -70,6 +70,10 @@ export default {
               // substrate(app.terminal.getCwd/onCwd/onCommandFinished·command.*/turn.ended)를
               // 이 키로 묶는다 — cwd 추종 뷰(파일트리)가 같은 id 로 따라온다.
               paneId: viewId,
+              // 에이전트 프로그램(claude/codex)의 자동 실행 명령 — 셸 프롬프트가 뜨면 PTY 가
+              // 버퍼한 입력을 처리한다(첫 pane 1회). 코어가 ContributedProgram.command 를
+              // PluginViewContext.command 로 흘려보낸다(뷰 종류 무관 채널 — 터미널만 실행).
+              initialCommand: vctx.command ?? undefined,
               settings: readSettings(),
             }).then((inst) => {
               if (disposed) {
