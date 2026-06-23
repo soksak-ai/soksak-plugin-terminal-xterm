@@ -49,15 +49,30 @@ export interface TerminalInstance {
   readBuffer(lines?: number): string;
   /** xterm 화면 지우기. */
   clear(): void;
+  /** 사용자 설정(글꼴/커서/스크롤백) 라이브 적용 — app.settings.onChange 에서 호출. */
+  applySettings(s: TermSettings): void;
 }
+
+// 터미널 플러그인이 *소유·적용*하는 설정(manifest contributes.configuration 와 1:1). 코어 settings 아님.
+export interface TermSettings {
+  fontFamily?: string;
+  fontSize?: number;
+  scrollback?: number;
+  cursorBlink?: boolean;
+  cursorStyle?: "block" | "underline" | "bar";
+}
+
+const DEFAULT_FONT =
+  '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace';
 
 export async function createTerminalInstance(opts: {
   pty: PtyApi;
   cwd?: string;
   shell?: string;
   paneId?: number | null;
+  settings?: TermSettings;
 }): Promise<TerminalInstance> {
-  const { pty, cwd, shell, paneId } = opts;
+  const { pty, cwd, shell, paneId, settings } = opts;
 
   // 폰트 선로드 — open() 전에 보장하지 않으면 셀 정렬이 깨진다.
   if (document.fonts?.ready) {
@@ -68,16 +83,16 @@ export async function createTerminalInstance(opts: {
     }
   }
 
+  // 설정은 플러그인 소유(manifest config) — app.settings 에서 읽어 호출부가 주입. 미지정은 기본값.
   const term = new Terminal({
     allowProposedApi: true,
-    fontFamily:
-      '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace',
-    fontSize: 13,
+    fontFamily: settings?.fontFamily || DEFAULT_FONT,
+    fontSize: settings?.fontSize ?? 13,
     lineHeight: 1.0,
     letterSpacing: 0,
-    scrollback: 10000,
-    cursorBlink: true,
-    cursorStyle: "block",
+    scrollback: settings?.scrollback ?? 10000,
+    cursorBlink: settings?.cursorBlink ?? true,
+    cursorStyle: settings?.cursorStyle ?? "block",
     drawBoldTextInBrightColors: true,
     minimumContrastRatio: 1,
     theme: DARK_THEME,
@@ -165,6 +180,7 @@ export async function createTerminalInstance(opts: {
       sendInput: () => {},
       readBuffer: () => "",
       clear: () => {},
+      applySettings: () => {},
     };
   }
 
@@ -247,5 +263,18 @@ export async function createTerminalInstance(opts: {
       return out.join("\n");
     },
     clear: () => term.clear(),
+    applySettings: (s: TermSettings) => {
+      // 라이브 적용 — xterm 옵션을 갱신하고 재핏(셀 크기 변화 시 PTY resize 는 fitTerminal 내부에서).
+      if (s.fontFamily) term.options.fontFamily = s.fontFamily;
+      if (s.fontSize != null) term.options.fontSize = s.fontSize;
+      if (s.scrollback != null) term.options.scrollback = s.scrollback;
+      if (s.cursorBlink != null) term.options.cursorBlink = s.cursorBlink;
+      if (s.cursorStyle) term.options.cursorStyle = s.cursorStyle;
+      try {
+        fitTerminal();
+      } catch {
+        /* 0 크기 컨테이너 무시 */
+      }
+    },
   };
 }

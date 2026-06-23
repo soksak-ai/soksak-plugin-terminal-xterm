@@ -36,11 +36,31 @@ export default {
 
             let disposed = false;
             let termInst: import("./terminal").TerminalInstance | null = null;
+            // 설정은 플러그인 소유(manifest config) — app.settings 에서 effective 값을 읽어 적용.
+            const readSettings = (): import("./terminal").TermSettings => {
+              const all = app.settings?.all?.() ?? {};
+              return {
+                fontFamily: all.fontFamily as string | undefined,
+                fontSize: all.fontSize as number | undefined,
+                scrollback: all.scrollback as number | undefined,
+                cursorBlink: all.cursorBlink as boolean | undefined,
+                cursorStyle: all.cursorStyle as
+                  | "block"
+                  | "underline"
+                  | "bar"
+                  | undefined,
+              };
+            };
+            // 값 변경 시 라이브 재적용(폴링 없음). 해지는 dispose 에서.
+            const unSettings = app.settings?.onChange?.(() =>
+              termInst?.applySettings(readSettings()),
+            );
 
             createTerminalInstance({
               pty: app.pty,
               cwd: vctx.root ?? undefined,
               paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || undefined : (vctx.paneId ?? undefined),
+              settings: readSettings(),
             }).then((inst) => {
               if (disposed) {
                 // unmount 가 spawn 보다 먼저 일어난 경우 — 즉시 정리.
@@ -64,6 +84,7 @@ export default {
             // termInst 를 직접 참조해 PTY 세션을 닫는다(레지스트리 경유 없음).
             (wrap as unknown as Record<string, unknown>).__skTermDispose = async () => {
               disposed = true;
+              unSettings?.dispose();
               unregisterTerminal(viewId);
               if (termInst) {
                 await termInst.dispose().catch(() => {});

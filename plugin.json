@@ -18,6 +18,76 @@
     "programs",
     "pty"
   ],
+  "configuration": [
+    {
+      "key": "fontFamily",
+      "type": "string",
+      "default": "\"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", Menlo, Consolas, \"Courier New\", monospace",
+      "title": {
+        "ko": "글꼴",
+        "en": "Font family"
+      }
+    },
+    {
+      "key": "fontSize",
+      "type": "number",
+      "default": 13,
+      "min": 8,
+      "max": 32,
+      "title": {
+        "ko": "글꼴 크기",
+        "en": "Font size"
+      }
+    },
+    {
+      "key": "scrollback",
+      "type": "number",
+      "default": 10000,
+      "min": 0,
+      "max": 200000,
+      "title": {
+        "ko": "스크롤백 줄 수",
+        "en": "Scrollback lines"
+      }
+    },
+    {
+      "key": "cursorBlink",
+      "type": "boolean",
+      "default": true,
+      "title": {
+        "ko": "커서 깜빡임",
+        "en": "Cursor blink"
+      }
+    },
+    {
+      "key": "cursorStyle",
+      "type": "enum",
+      "enum": [
+        "block",
+        "underline",
+        "bar"
+      ],
+      "enumLabels": [
+        {
+          "ko": "블록",
+          "en": "Block"
+        },
+        {
+          "ko": "밑줄",
+          "en": "Underline"
+        },
+        {
+          "ko": "막대",
+          "en": "Bar"
+        }
+      ],
+      "default": "block",
+      "title": {
+        "ko": "커서 모양",
+        "en": "Cursor style"
+      }
+    }
+  ],
   "contributes": {
     "programs": [
       {

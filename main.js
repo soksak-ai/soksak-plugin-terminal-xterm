@@ -14353,8 +14353,9 @@ var DARK_THEME = {
   brightCyan: "#29b8db",
   brightWhite: "#ffffff"
 };
+var DEFAULT_FONT = '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace';
 async function createTerminalInstance(opts) {
-  const { pty, cwd, shell, paneId } = opts;
+  const { pty, cwd, shell, paneId, settings } = opts;
   if (document.fonts?.ready) {
     try {
       await document.fonts.ready;
@@ -14363,13 +14364,13 @@ async function createTerminalInstance(opts) {
   }
   const term = new Dl({
     allowProposedApi: true,
-    fontFamily: '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace',
-    fontSize: 13,
+    fontFamily: settings?.fontFamily || DEFAULT_FONT,
+    fontSize: settings?.fontSize ?? 13,
     lineHeight: 1,
     letterSpacing: 0,
-    scrollback: 1e4,
-    cursorBlink: true,
-    cursorStyle: "block",
+    scrollback: settings?.scrollback ?? 1e4,
+    cursorBlink: settings?.cursorBlink ?? true,
+    cursorStyle: settings?.cursorStyle ?? "block",
     drawBoldTextInBrightColors: true,
     minimumContrastRatio: 1,
     theme: DARK_THEME
@@ -14445,6 +14446,8 @@ async function createTerminalInstance(opts) {
       },
       readBuffer: () => "",
       clear: () => {
+      },
+      applySettings: () => {
       }
     };
   }
@@ -14529,7 +14532,18 @@ async function createTerminalInstance(opts) {
       for (let i8 = end + 1 - want; i8 <= end; i8++) out.push(line(i8));
       return out.join("\n");
     },
-    clear: () => term.clear()
+    clear: () => term.clear(),
+    applySettings: (s15) => {
+      if (s15.fontFamily) term.options.fontFamily = s15.fontFamily;
+      if (s15.fontSize != null) term.options.fontSize = s15.fontSize;
+      if (s15.scrollback != null) term.options.scrollback = s15.scrollback;
+      if (s15.cursorBlink != null) term.options.cursorBlink = s15.cursorBlink;
+      if (s15.cursorStyle) term.options.cursorStyle = s15.cursorStyle;
+      try {
+        fitTerminal();
+      } catch {
+      }
+    }
   };
 }
 
@@ -14612,10 +14626,24 @@ var plugin_entry_default = {
             }
             let disposed = false;
             let termInst = null;
+            const readSettings = () => {
+              const all = app.settings?.all?.() ?? {};
+              return {
+                fontFamily: all.fontFamily,
+                fontSize: all.fontSize,
+                scrollback: all.scrollback,
+                cursorBlink: all.cursorBlink,
+                cursorStyle: all.cursorStyle
+              };
+            };
+            const unSettings = app.settings?.onChange?.(
+              () => termInst?.applySettings(readSettings())
+            );
             createTerminalInstance({
               pty: app.pty,
               cwd: vctx.root ?? void 0,
-              paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || void 0 : vctx.paneId ?? void 0
+              paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || void 0 : vctx.paneId ?? void 0,
+              settings: readSettings()
             }).then((inst) => {
               if (disposed) {
                 inst.dispose().catch(() => {
@@ -14635,6 +14663,7 @@ var plugin_entry_default = {
             });
             wrap.__skTermDispose = async () => {
               disposed = true;
+              unSettings?.dispose();
               unregisterTerminal(viewId);
               if (termInst) {
                 await termInst.dispose().catch(() => {
