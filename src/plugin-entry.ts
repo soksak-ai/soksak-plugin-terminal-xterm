@@ -36,6 +36,9 @@ export default {
 
             let disposed = false;
             let termInst: import("./terminal").TerminalInstance | null = null;
+            // 코어 substrate 에 등록한 IO 핸들(있으면 dispose 에서 해지). app.terminal.readBuffer/
+            // sendText 가 이 viewId(=paneId)로 이 터미널의 버퍼 읽기·입력 쓰기에 닿게 한다.
+            let ioReg: import("./host").Disposable | null = null;
             // 설정은 플러그인 소유(manifest config) — app.settings 에서 effective 값을 읽어 적용.
             const readSettings = (): import("./terminal").TermSettings => {
               const all = app.settings?.all?.() ?? {};
@@ -79,6 +82,11 @@ export default {
               wrap.appendChild(inst.element);
               inst.focus();
               registerTerminal(viewId, inst);
+              // app.terminal.readBuffer/sendText 가 이 터미널에 닿도록 IO 핸들 등록(키=viewId=paneId).
+              ioReg = app.pty?.registerIo?.(viewId, {
+                readBuffer: (lines?: number) => inst.readBuffer(lines),
+                sendInput: (data: string) => inst.sendInput(data),
+              }) ?? null;
               vctx.setStatus(null);
               vctx.setTitle("Terminal");
             }).catch((err: unknown) => {
@@ -92,6 +100,8 @@ export default {
             (wrap as unknown as Record<string, unknown>).__skTermDispose = async () => {
               disposed = true;
               unSettings?.dispose();
+              ioReg?.dispose(); // substrate IO 핸들 해지(누수 0)
+              ioReg = null;
               unregisterTerminal(viewId);
               if (termInst) {
                 await termInst.dispose().catch(() => {});

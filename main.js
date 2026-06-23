@@ -14637,6 +14637,7 @@ var plugin_entry_default = {
             }
             let disposed = false;
             let termInst = null;
+            let ioReg = null;
             const readSettings = () => {
               const all = app.settings?.all?.() ?? {};
               return {
@@ -14671,6 +14672,10 @@ var plugin_entry_default = {
               wrap.appendChild(inst.element);
               inst.focus();
               registerTerminal(viewId, inst);
+              ioReg = app.pty?.registerIo?.(viewId, {
+                readBuffer: (lines) => inst.readBuffer(lines),
+                sendInput: (data) => inst.sendInput(data)
+              }) ?? null;
               vctx.setStatus(null);
               vctx.setTitle("Terminal");
             }).catch((err) => {
@@ -14681,6 +14686,8 @@ var plugin_entry_default = {
             wrap.__skTermDispose = async () => {
               disposed = true;
               unSettings?.dispose();
+              ioReg?.dispose();
+              ioReg = null;
               unregisterTerminal(viewId);
               if (termInst) {
                 await termInst.dispose().catch(() => {

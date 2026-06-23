@@ -64,6 +64,12 @@ export interface PtyApi {
   onData(id: number, cb: (data: Uint8Array) => void): Disposable;
   /** 셸 바이너리 경로 확인. 없으면 null. */
   which(bin: string): Promise<string | null>;
+  /** 이 paneId 의 IO 핸들러(화면 읽기·입력 쓰기)를 코어 substrate 에 등록 → app.terminal.
+   *  readBuffer/sendText 가 이 터미널에 닿는다. 마운트 시 등록, 언마운트 시 해지(Disposable). */
+  registerIo(
+    paneId: string,
+    io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
+  ): Disposable;
 }
 
 export interface PluginApi {
