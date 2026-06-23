@@ -12,6 +12,8 @@ export interface PluginViewContext {
   root: string | null;
   paneId: string | null;
   viewId: string | null;
+  // 마운트 시 1회 자동 실행할 명령(에이전트 프로그램 — 터미널이 PTY 로 실행). 없으면 null.
+  command: string | null;
   setBadge: (badge: number | "dot" | null) => void;
   setStatus: (status: { code: string; message?: string } | null) => void;
   setTitle: (title: string) => void;

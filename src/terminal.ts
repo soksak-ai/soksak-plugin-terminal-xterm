@@ -542,6 +542,10 @@ export async function createTerminalInstance(opts: {
   shell?: string;
   paneId?: string | null;
   settings?: TermSettings;
+  // spawn 직후 PTY 로 1회 자동 실행할 명령(에이전트 프로그램 claude/codex).
+  initialCommand?: string;
+  // 복원 터미널(A6): initialCommand 를 실행(\r) 대신 프롬프트에 붙여넣기만.
+  pasteCommandOnly?: boolean;
 }): Promise<TerminalInstance> {
   return createTerminal({
     pty: opts.pty,
@@ -549,5 +553,7 @@ export async function createTerminalInstance(opts: {
     shell: opts.shell,
     paneId: opts.paneId ?? undefined,
     settings: opts.settings,
+    initialCommand: opts.initialCommand,
+    pasteCommandOnly: opts.pasteCommandOnly,
   });
 }
