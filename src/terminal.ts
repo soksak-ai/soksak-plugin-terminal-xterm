@@ -72,7 +72,7 @@ export async function createTerminalInstance(opts: {
   pty: PtyApi;
   cwd?: string;
   shell?: string;
-  paneId?: number | null;
+  paneId?: string | null;
   settings?: TermSettings;
 }): Promise<TerminalInstance> {
   const { pty, cwd, shell, paneId, settings } = opts;
@@ -174,7 +174,7 @@ export async function createTerminalInstance(opts: {
     rows: term.rows,
     cwd: cwd ?? undefined,
     shell: shell ?? undefined,
-    paneId: typeof paneId === "number" ? paneId : undefined,
+    paneId: paneId ?? undefined,
   });
 
   // PTY 출력 구독 : onData 는 스폰 전 버퍼를 보유하므로 순서 보장.

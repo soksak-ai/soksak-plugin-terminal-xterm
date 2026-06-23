@@ -43,13 +43,14 @@ export interface CommandOutcome {
 
 // app.pty — 코어 PTY 구동 표면 (pty 권한 필요).
 export interface PtyApi {
-  /** PTY 생성 + 셸 스폰. 반환값 = ptyId. */
+  /** PTY 생성 + 셸 스폰. 반환값 = ptyId. paneId 는 관찰 substrate·sok CLI 타깃 키(문자열 —
+   *  코어가 SOKSAK_PANE 으로 주입하고 app.terminal/command 관찰을 이 키로 묶는다). */
   spawn(opts: {
     cols: number;
     rows: number;
     cwd?: string;
     shell?: string;
-    paneId?: number;
+    paneId?: string;
   }): Promise<number>;
   /** ptyId 에 텍스트/바이트 전송(키 입력). */
   write(id: number, data: string | Uint8Array): Promise<void>;

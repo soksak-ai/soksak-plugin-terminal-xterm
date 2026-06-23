@@ -14436,7 +14436,7 @@ async function createTerminalInstance(opts) {
     rows: term.rows,
     cwd: cwd ?? void 0,
     shell: shell ?? void 0,
-    paneId: typeof paneId === "number" ? paneId : void 0
+    paneId: paneId ?? void 0
   });
   let dataSub = null;
   ptyId = await spawnPromise;
@@ -14656,7 +14656,10 @@ var plugin_entry_default = {
               pty: app.pty,
               cwd: vctx.root ?? void 0,
               shell: shell || void 0,
-              paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || void 0 : vctx.paneId ?? void 0,
+              // paneId = 이 콘텐츠 뷰의 안정 view.id. 코어가 SOKSAK_PANE 으로 주입하고, 관찰
+              // substrate(app.terminal.getCwd/onCwd/onCommandFinished·command.*/turn.ended)를
+              // 이 키로 묶는다 — cwd 추종 뷰(파일트리)가 같은 id 로 따라온다.
+              paneId: viewId,
               settings: readSettings()
             }).then((inst) => {
               if (disposed) {

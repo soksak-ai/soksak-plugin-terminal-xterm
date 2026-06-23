@@ -63,7 +63,10 @@ export default {
               pty: app.pty,
               cwd: vctx.root ?? undefined,
               shell: shell || undefined,
-              paneId: typeof vctx.paneId === "string" ? parseInt(vctx.paneId, 10) || undefined : (vctx.paneId ?? undefined),
+              // paneId = 이 콘텐츠 뷰의 안정 view.id. 코어가 SOKSAK_PANE 으로 주입하고, 관찰
+              // substrate(app.terminal.getCwd/onCwd/onCommandFinished·command.*/turn.ended)를
+              // 이 키로 묶는다 — cwd 추종 뷰(파일트리)가 같은 id 로 따라온다.
+              paneId: viewId,
               settings: readSettings(),
             }).then((inst) => {
               if (disposed) {
