@@ -295,7 +295,9 @@ var PLUGIN_CSS = `
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background: #1e1e1e;
+  /* \uADF8\uB9AC\uB4DC \uC794\uC5EC(\uC6B0/\uD558\uB2E8) \uBC30\uACBD = \uC571 \uD14C\uB9C8 --bg. xterm theme.background \uC640 \uB3D9\uC77C \uAC12\uC73C\uB85C
+     \uB9DE\uCDB0\uC57C \uD55C\uB2E4(\uCF54\uC5B4 terminal/theme.ts \uADDC\uCE59). \uBBF8\uC124\uC815 \uC2DC \uB2E4\uD06C \uD3F4\uBC31. */
+  background: var(--bg, #1e1e1e);
 }
 .sk-term-xterm {
   flex: 1 1 auto;
@@ -310,7 +312,7 @@ var PLUGIN_CSS = `
   padding: 0;
 }
 .sk-term-xterm .xterm .xterm-viewport {
-  background-color: #1e1e1e !important;
+  background-color: var(--bg, #1e1e1e) !important;
 }
 `;
 function injectStyles() {
@@ -14327,11 +14329,14 @@ var xr2 = class extends B3 {
   }
 };
 
-// src/terminal.ts
-var FLOW_ACK_SIZE = 5e3;
-var DARK_THEME = {
+// src/theme.ts
+var backgrounds = {
+  dark: "#1e1e1e",
+  light: "#ffffff"
+};
+var darkPalette = {
   foreground: "#cccccc",
-  background: "#1e1e1e",
+  background: backgrounds.dark,
   cursor: "#ffffff",
   cursorAccent: "#1e1e1e",
   selectionBackground: "#264f78",
@@ -14353,6 +14358,310 @@ var DARK_THEME = {
   brightCyan: "#29b8db",
   brightWhite: "#ffffff"
 };
+var lightPalette = {
+  foreground: "#333333",
+  background: backgrounds.light,
+  cursor: "#000000",
+  cursorAccent: "#ffffff",
+  selectionBackground: "#add6ff",
+  selectionInactiveBackground: "#e5ebf1",
+  black: "#000000",
+  red: "#cd3131",
+  green: "#00bc00",
+  yellow: "#949800",
+  blue: "#0451a5",
+  magenta: "#bc05bc",
+  cyan: "#0598bc",
+  white: "#555555",
+  brightBlack: "#666666",
+  brightRed: "#cd3131",
+  brightGreen: "#14ce14",
+  brightYellow: "#b5ba00",
+  brightBlue: "#0451a5",
+  brightMagenta: "#bc05bc",
+  brightCyan: "#0598bc",
+  brightWhite: "#a5a5a5"
+};
+var palettes = {
+  dark: darkPalette,
+  light: lightPalette
+};
+function currentMode() {
+  const m2 = typeof document !== "undefined" ? document.documentElement.dataset.themeMode : void 0;
+  return m2 === "light" ? "light" : "dark";
+}
+function appBackground() {
+  if (typeof document === "undefined" || typeof getComputedStyle !== "function") {
+    return "";
+  }
+  return getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+}
+function themeFor(mode = currentMode()) {
+  const base = palettes[mode];
+  const bg = appBackground() || backgrounds[mode];
+  return { ...base, background: bg };
+}
+
+// src/vendor/xterm-addon-webkit-ime/index.ts
+function isHangul(text) {
+  if (!text) return false;
+  const cp = text.codePointAt(0) ?? 0;
+  return cp >= 4352 && cp <= 4607 || // Hangul Jamo
+  cp >= 12592 && cp <= 12687 || // Hangul Compatibility Jamo
+  cp >= 44032 && cp <= 55215 || // Hangul Syllables
+  cp >= 43360 && cp <= 43391 || // Hangul Jamo Extended-A
+  cp >= 55216 && cp <= 55295;
+}
+function isHangulJamo(text) {
+  if (!text) return false;
+  const cp = text.codePointAt(0) ?? 0;
+  return cp >= 4352 && cp <= 4607 || // Hangul Jamo (conjoining)
+  cp >= 12592 && cp <= 12687 || // Hangul Compatibility Jamo
+  cp >= 43360 && cp <= 43391 || // Hangul Jamo Extended-A
+  cp >= 55216 && cp <= 55295;
+}
+var WebkitImeAddon = class {
+  constructor(_opts) {
+    this._opts = _opts;
+  }
+  _term;
+  _preedit;
+  _onRender;
+  _removers = [];
+  // Non-standard (insertReplacementText) composition state. The standard path
+  // never sets these — it is fully owned by xterm.
+  _composing = false;
+  _pending = "";
+  // GUARD 2 (resyllabification echo dedup): the single Hangul char seen on the
+  // most recent IME beforeinput. shouldSkip drops the matching onData once.
+  _expectEcho = "";
+  // GUARD 3 (post-flush delayed-commit): the syllable just flushed from a
+  // keydown terminator. _onInput consumes the matching delayed commit once.
+  _justFlushed = "";
+  // True only while _flush() runs inside _onKeydown, so the flush knows it must
+  // arm GUARD 3 (a standard-path flush from _onInput must not).
+  _flushingFromKeydown = false;
+  activate(terminal) {
+    const ta2 = terminal.textarea;
+    if (!ta2) return;
+    this._term = terminal;
+    const preedit = document.createElement("div");
+    preedit.style.position = "absolute";
+    preedit.style.pointerEvents = "none";
+    preedit.style.whiteSpace = "pre";
+    preedit.style.zIndex = "5";
+    preedit.style.color = "#fff";
+    preedit.style.background = "rgb(47, 47, 47)";
+    preedit.style.textDecoration = "underline";
+    preedit.style.display = "none";
+    (terminal.element ?? ta2.parentElement ?? document.body).appendChild(preedit);
+    this._preedit = preedit;
+    const add = (type, fn3) => {
+      ta2.addEventListener(type, fn3, true);
+      this._removers.push(() => ta2.removeEventListener(type, fn3, true));
+    };
+    add("input", this._onInput);
+    add("keydown", this._onKeydown);
+    add("beforeinput", this._onBeforeinput);
+    terminal.attachCustomKeyEventHandler(this._customKey);
+    this._onRender = terminal.onRender(() => {
+      if (this._composing && this._pending) this._show(this._pending);
+    });
+  }
+  dispose() {
+    for (const off of this._removers) off();
+    this._removers = [];
+    this._onRender?.dispose();
+    this._onRender = void 0;
+    this._preedit?.remove();
+    this._preedit = void 0;
+    this._term?.attachCustomKeyEventHandler(() => true);
+    this._composing = false;
+    this._pending = "";
+    this._expectEcho = "";
+    this._justFlushed = "";
+    this._flushingFromKeydown = false;
+  }
+  /** Call from terminal.onData — true if the data is leaked jamo to drop. */
+  shouldSkip(data) {
+    if ((data === "\x7F" || data === "\b") && this._pending !== "") return true;
+    if (data.length === 1 && isHangulJamo(data)) return true;
+    if (data.length === 1 && isHangul(data) && data === this._expectEcho) {
+      this._expectEcho = "";
+      return true;
+    }
+    return this._composing && data.length === 1 && isHangul(data);
+  }
+  /**
+   * Commit any pending non-standard syllable immediately. Call this from
+   * terminal.onData BEFORE forwarding a non-skipped chunk to the pty so the
+   * composed syllable is ordered ahead of the following external input.
+   *
+   * GUARD 7: WKWebView routes a non-Hangul key pressed mid-composition (`.`,
+   * `?`, `!`, punctuation, ASCII, paste) to the pty via xterm's textarea-poll
+   * onData, which fires BEFORE the addon's keydown flush — so the char landed
+   * before the pending syllable ("자" + "." → ".자", "하" + "?" → "?하"). Flushing
+   * here, on the same onData path that writes the char, guarantees correct order.
+   * No-op when nothing is pending.
+   */
+  flushPending() {
+    this._flush();
+  }
+  _customKey = (ev) => {
+    if (ev.type === "keydown" && (ev.keyCode === 229 || ev.isComposing)) {
+      return false;
+    }
+    if (ev.type === "keydown" && this._pending !== "") {
+      if (ev.key === "Enter" || ev.key === "Tab" || ev.key === "Escape") {
+        return false;
+      }
+      if (ev.ctrlKey && !ev.metaKey && !ev.altKey && ev.key.length === 1 && ev.key >= "a" && ev.key <= "z") {
+        return false;
+      }
+    }
+    if (ev.type === "keydown" && ev.keyCode === 8 && this._pending !== "") {
+      return false;
+    }
+    return true;
+  };
+  _onKeydown = (e) => {
+    this._opts.onDebug?.(`KEY key=${JSON.stringify(e.key)} code=${e.keyCode} composing=${this._composing} isComposing=${e.isComposing}`);
+    let emit = null;
+    if (this._composing) {
+      if (e.key === "Enter") emit = "\r";
+      else if (e.key === "Tab") emit = "	";
+      else if (e.key === "Escape") emit = "\x1B";
+      else if (e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1 && e.key >= "a" && e.key <= "z") {
+        emit = String.fromCharCode(e.key.charCodeAt(0) - 96);
+      }
+    }
+    if (emit !== null) {
+      this._flushingFromKeydown = true;
+      this._flush();
+      this._flushingFromKeydown = false;
+      this._opts.onData(emit);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (e.keyCode === 229 || e.isComposing) {
+      this._justFlushed = "";
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (e.key === "Backspace" && this._composing) {
+      this._composing = false;
+      this._pending = "";
+      this._hide();
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    if (e.key === "Shift" || e.key === "Control" || e.key === "Alt" || e.key === "Meta" || e.key === "CapsLock" || e.key === "AltGraph") {
+      return;
+    }
+    if (this._composing) {
+      this._flushingFromKeydown = true;
+      this._flush();
+      this._flushingFromKeydown = false;
+    }
+  };
+  _onBeforeinput = (e) => {
+    this._opts.onDebug?.(
+      `BEFOREINPUT type=${e.inputType} data=${JSON.stringify(e.data)} composing=${this._composing} pending=${JSON.stringify(this._pending)} expectEcho=${JSON.stringify(this._expectEcho)}`
+    );
+    if (e.data !== null && e.data.length === 1 && isHangul(e.data) && (e.inputType === "insertText" || e.inputType === "insertReplacementText")) {
+      this._expectEcho = e.data;
+    } else {
+      this._expectEcho = "";
+    }
+  };
+  _onInput = (e) => {
+    this._opts.onDebug?.(
+      `INPUT type=${e.inputType} data=${JSON.stringify(e.data)} composing=${this._composing} pending=${JSON.stringify(this._pending)}`
+    );
+    if (e.data !== null && e.data === this._justFlushed && (e.inputType === "insertText" || e.inputType === "insertReplacementText")) {
+      this._justFlushed = "";
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    if (this._justFlushed) this._justFlushed = "";
+    if (e.data && e.inputType === "insertReplacementText") {
+      this._composing = true;
+      this._pending = e.data;
+      this._show(e.data);
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    if (e.data && e.inputType === "insertText" && isHangul(e.data)) {
+      if (this._composing) this._flush();
+      this._composing = true;
+      this._pending = e.data;
+      this._show(e.data);
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    if (this._composing && (e.inputType === "deleteContentBackward" || e.inputType === "insertReplacementText" && !e.data)) {
+      this._composing = false;
+      this._pending = "";
+      this._hide();
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      return;
+    }
+    if (this._composing) this._flush();
+  };
+  _place() {
+    const term = this._term;
+    const preedit = this._preedit;
+    if (!term || !preedit) return;
+    const core = term._core;
+    const cell = core?._renderService?.dimensions?.css?.cell;
+    const el2 = term.element;
+    const cw = cell?.width ?? (el2 ? el2.clientWidth / term.cols : 9);
+    const ch = cell?.height ?? (el2 ? el2.clientHeight / term.rows : 17);
+    const buf = term.buffer.active;
+    const col = Math.min(buf.cursorX, term.cols - 1);
+    const row = buf.cursorY;
+    preedit.style.left = `${col * cw}px`;
+    preedit.style.top = `${row * ch}px`;
+    preedit.style.height = `${ch}px`;
+    preedit.style.lineHeight = `${ch}px`;
+    preedit.style.fontFamily = term.options.fontFamily ?? "monospace";
+    preedit.style.fontSize = `${term.options.fontSize ?? 15}px`;
+  }
+  _show(text) {
+    if (!this._preedit) return;
+    this._preedit.textContent = text;
+    this._place();
+    this._preedit.style.display = "block";
+  }
+  _hide() {
+    if (!this._preedit) return;
+    this._preedit.textContent = "";
+    this._preedit.style.display = "none";
+  }
+  _flush() {
+    if (!this._composing) return;
+    const text = this._pending;
+    this._composing = false;
+    this._pending = "";
+    this._hide();
+    if (text) {
+      this._opts.onDebug?.(
+        `FLUSH ${JSON.stringify(text)} fromKeydown=${this._flushingFromKeydown}`
+      );
+      if (this._flushingFromKeydown) this._justFlushed = text;
+      this._opts.onData(text);
+    }
+  }
+};
+
+// src/terminal.ts
+var FLOW_ACK_SIZE = 5e3;
 var DEFAULT_FONT = '"JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, "Courier New", monospace';
 async function createTerminalInstance(opts) {
   const { pty, cwd, shell, paneId, settings } = opts;
@@ -14373,7 +14682,8 @@ async function createTerminalInstance(opts) {
     cursorStyle: settings?.cursorStyle ?? "block",
     drawBoldTextInBrightColors: true,
     minimumContrastRatio: 1,
-    theme: DARK_THEME
+    // 앱 테마(dataset.themeMode + :root --bg)를 상속. 아래 MutationObserver 가 라이브 추종.
+    theme: themeFor()
   });
   term.loadAddon(new Ke());
   term.unicode.activeVersion = "11";
@@ -14410,6 +14720,16 @@ async function createTerminalInstance(opts) {
     }
   };
   setRenderer(settings?.xtermRenderer ?? "webgl");
+  const applyTheme = () => {
+    term.options.theme = themeFor();
+    webgl?.clearTextureAtlas();
+    term.refresh(0, term.rows - 1);
+  };
+  const themeObserver = new MutationObserver(() => applyTheme());
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme-mode", "style"]
+  });
   const fitTerminal = () => {
     if (container.clientWidth === 0 || container.clientHeight === 0) return;
     const core = term._core;
@@ -14431,6 +14751,40 @@ async function createTerminalInstance(opts) {
   let disposed = false;
   let ptyId = 0;
   let ackPending = 0;
+  const writeToPty = (data) => {
+    if (ptyId !== 0) {
+      pty.write(ptyId, data).catch(() => {
+      });
+    }
+  };
+  term.parser.registerOscHandler(11, (data) => {
+    if (data !== "?") {
+      return false;
+    }
+    const bg = term.options.theme?.background ?? "#1e1e1e";
+    const m2 = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(bg);
+    if (m2) {
+      const c2 = (h2) => `${h2}${h2}`;
+      writeToPty(`\x1B]11;rgb:${c2(m2[1])}/${c2(m2[2])}/${c2(m2[3])}\x1B\\`);
+    }
+    return true;
+  });
+  const ime = new WebkitImeAddon({ onData: writeToPty });
+  term.loadAddon(ime);
+  const onPaste = (e) => {
+    const dt3 = e.clipboardData;
+    if (!dt3) return;
+    const items = Array.from(dt3.items ?? []);
+    const files = Array.from(dt3.files ?? []);
+    const hasImage = items.some((it3) => it3.kind === "file" && it3.type.startsWith("image/")) || files.some((f2) => f2.type.startsWith("image/"));
+    const text = dt3.getData("text/plain");
+    if (hasImage && !text && term.modes.bracketedPasteMode) {
+      e.preventDefault();
+      e.stopPropagation();
+      writeToPty("\x1B[200~\x1B[201~");
+    }
+  };
+  container.addEventListener("paste", onPaste, true);
   const spawnPromise = pty.spawn({
     cols: term.cols,
     rows: term.rows,
@@ -14443,6 +14797,8 @@ async function createTerminalInstance(opts) {
   if (disposed) {
     pty.close(ptyId).catch(() => {
     });
+    container.removeEventListener("paste", onPaste, true);
+    themeObserver.disconnect();
     term.dispose();
     webgl?.dispose();
     return {
@@ -14451,7 +14807,11 @@ async function createTerminalInstance(opts) {
       },
       focus: () => {
       },
+      fit: () => {
+      },
       sendInput: () => {
+      },
+      paste: () => {
       },
       readBuffer: () => "",
       clear: () => {
@@ -14471,23 +14831,29 @@ async function createTerminalInstance(opts) {
     });
   });
   const inputDisp = term.onData((data) => {
-    if (ptyId !== 0) {
-      pty.write(ptyId, data).catch(() => {
-      });
+    const skip = ime.shouldSkip(data);
+    if (!skip) {
+      if (data.charCodeAt(0) !== 27) ime.flushPending();
+      writeToPty(data);
     }
   });
   const FIT_THROTTLE_MS = 50;
   let lastFitAt = 0;
   let fitTimer;
+  const syncPty = () => {
+    if (ptyId !== 0) {
+      pty.resize(ptyId, term.cols, term.rows).catch(() => {
+      });
+    }
+  };
   const safeFit = () => {
     try {
       lastFitAt = performance.now();
       const before = `${term.cols}x${term.rows}`;
       fitTerminal();
-      if (`${term.cols}x${term.rows}` !== before && ptyId !== 0) {
+      if (`${term.cols}x${term.rows}` !== before) {
         term.refresh(0, term.rows - 1);
-        pty.resize(ptyId, term.cols, term.rows).catch(() => {
-        });
+        syncPty();
       }
     } catch {
     }
@@ -14507,12 +14873,43 @@ async function createTerminalInstance(opts) {
       }, FIT_THROTTLE_MS - since);
     }
   };
-  const resizeObserver = new ResizeObserver(() => scheduleFit());
+  const doResize = (immediate = false) => {
+    if (immediate) {
+      if (fitTimer !== void 0) {
+        clearTimeout(fitTimer);
+        fitTimer = void 0;
+      }
+      safeFit();
+      syncPty();
+      return;
+    }
+    if (typeof container.checkVisibility === "function" && !container.checkVisibility({ visibilityProperty: true })) {
+      return;
+    }
+    scheduleFit();
+  };
+  const resizeObserver = new ResizeObserver(() => doResize());
   resizeObserver.observe(container);
+  let dprCleanup;
+  const armDprListener = () => {
+    const mq = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+    const handler = () => {
+      term.refresh(0, term.rows - 1);
+      doResize(true);
+      dprCleanup?.();
+      armDprListener();
+    };
+    mq.addEventListener("change", handler, { once: true });
+    dprCleanup = () => mq.removeEventListener("change", handler);
+  };
+  armDprListener();
   const dispose = async () => {
     disposed = true;
+    container.removeEventListener("paste", onPaste, true);
     clearTimeout(fitTimer);
     resizeObserver.disconnect();
+    dprCleanup?.();
+    themeObserver.disconnect();
     inputDisp.dispose();
     dataSub?.dispose();
     if (ptyId !== 0) {
@@ -14526,10 +14923,10 @@ async function createTerminalInstance(opts) {
     element: container,
     dispose,
     focus: () => term.focus(),
-    sendInput: (data) => {
-      if (ptyId !== 0) pty.write(ptyId, data).catch(() => {
-      });
-    },
+    // 포커스/노출/이동(appendChild) 직후 호출되는 경로 — 지금 맞춰야 한다.
+    fit: () => doResize(true),
+    sendInput: (data) => writeToPty(data),
+    paste: (text) => term.paste(text),
     readBuffer: (lines) => {
       const buf = term.buffer.active;
       const line = (i8) => buf.getLine(i8)?.translateToString(true) ?? "";
@@ -14549,10 +14946,8 @@ async function createTerminalInstance(opts) {
       if (s15.cursorBlink != null) term.options.cursorBlink = s15.cursorBlink;
       if (s15.cursorStyle) term.options.cursorStyle = s15.cursorStyle;
       if (s15.xtermRenderer) setRenderer(s15.xtermRenderer);
-      try {
-        fitTerminal();
-      } catch {
-      }
+      webgl?.clearTextureAtlas();
+      doResize(true);
       term.refresh(0, term.rows - 1);
     }
   };
