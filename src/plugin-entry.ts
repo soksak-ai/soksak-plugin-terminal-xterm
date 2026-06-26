@@ -75,7 +75,26 @@ async function setupBlockPersistence(
       .catch(() => {});
   });
 
-  return { dispose: () => { unStart.dispose(); unEnd.dispose(); } };
+  // [단계③·R14] vault 잠금 시 화면 평문 폐기 — 코어가 broadcast 하는 "soksak:vault-locked" DOM 이벤트
+  // (autoLock.ts VAULT_LOCKED_EVENT 계약)를 듣고 스크롤백을 clear 한다. 가림이 아니라 실제 삭제 —
+  // 복원된 블록·라이브 출력에 남은 비밀 echo 를 메모리/화면에서 지운다. 잠금은 사용자 의도적 행위(수동
+  // 또는 opt-in idle)라 무조건 clear 가 안전한 기본값. PTY(뒷단)는 코어 소유라 계속 산다.
+  const onLocked = () => {
+    try {
+      inst.clear();
+    } catch {
+      /* clear 실패는 라이브 동작 비차단 */
+    }
+  };
+  window.addEventListener("soksak:vault-locked", onLocked);
+
+  return {
+    dispose: () => {
+      unStart.dispose();
+      unEnd.dispose();
+      window.removeEventListener("soksak:vault-locked", onLocked);
+    },
+  };
 }
 
 export default {

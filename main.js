@@ -15088,10 +15088,20 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
     ).then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP)).catch(() => {
     });
   });
-  return { dispose: () => {
-    unStart.dispose();
-    unEnd.dispose();
-  } };
+  const onLocked = () => {
+    try {
+      inst.clear();
+    } catch {
+    }
+  };
+  window.addEventListener("soksak:vault-locked", onLocked);
+  return {
+    dispose: () => {
+      unStart.dispose();
+      unEnd.dispose();
+      window.removeEventListener("soksak:vault-locked", onLocked);
+    }
+  };
 }
 var plugin_entry_default = {
   activate(ctx) {
