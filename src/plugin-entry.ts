@@ -65,11 +65,15 @@ async function setupBlockPersistence(
   // 이어가기 affordance 를 그런 블록엔 안 띄운다. lock/unlock 이벤트로 갱신(아래 onLocked/onUnlocked).
   let locked = false;
 
-  // 저장(R3): turn.ended(shell) 시 블록 기록 + retention. 시작 시각 추적(startTs).
+  // 저장(R3): turn.ended(shell) 시 블록 기록 + retention. 시작 시각·pid 추적(command.started 동반).
   let startTs = Date.now();
+  let startPid: number | null = null; // [R2] 명령 시작 시 foreground pid(best-effort)
   const unStart = app.events.on("command.started", (p) => {
-    const e = p as { paneId?: string };
-    if (e.paneId === viewId) startTs = Date.now();
+    const e = p as { paneId?: string; pid?: number | null };
+    if (e.paneId === viewId) {
+      startTs = Date.now();
+      startPid = e.pid ?? null;
+    }
   });
   const unEnd = app.events.on("turn.ended", (p) => {
     const e = p as {
@@ -94,6 +98,7 @@ async function setupBlockPersistence(
           exitCode: e.exitCode ?? null,
           agentKind: e.agentKind ?? null, // 계보(R2 스키마) — 비-에이전트 명령은 null
           sessionId: e.sessionId ?? null,
+          pid: startPid, // [R2] 명령 foreground pid(command/pid/sessionId 짝, best-effort)
           verified: !locked, // [R9] lock 중 저장이면 미인증 → 복원 시 resume affordance 차단
           startTs,
           endTs: Date.now(),

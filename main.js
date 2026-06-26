@@ -15113,9 +15113,13 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
   await hydrate();
   let locked = false;
   let startTs = Date.now();
+  let startPid = null;
   const unStart = app.events.on("command.started", (p2) => {
     const e = p2;
-    if (e.paneId === viewId) startTs = Date.now();
+    if (e.paneId === viewId) {
+      startTs = Date.now();
+      startPid = e.pid ?? null;
+    }
   });
   const unEnd = app.events.on("turn.ended", (p2) => {
     const e = p2;
@@ -15132,6 +15136,8 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
         agentKind: e.agentKind ?? null,
         // 계보(R2 스키마) — 비-에이전트 명령은 null
         sessionId: e.sessionId ?? null,
+        pid: startPid,
+        // [R2] 명령 foreground pid(command/pid/sessionId 짝, best-effort)
         verified: !locked,
         // [R9] lock 중 저장이면 미인증 → 복원 시 resume affordance 차단
         startTs,
