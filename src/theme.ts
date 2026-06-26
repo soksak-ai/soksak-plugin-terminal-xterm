@@ -84,13 +84,13 @@ export function currentMode(): ThemeMode {
   return m === "light" ? "light" : "dark";
 }
 
-// 앱이 :root 에 발행한 배경 색(--bg). 코어 engine.ts 가 COLOR_SLOTS "bg" → "--bg" 로 매핑한다.
-// 미설정/런타임 밖이면 빈 문자열.
+// 앱이 발행한 배경 색(--bg). 앱은 documentElement.style.setProperty("--bg")
+// 로 **인라인** 발행한다. 그래서 인라인 style.getPropertyValue 로 직접 읽는다 — getComputedStyle 은 변경
+// 직후 호출 시 전체 문서 스타일 recalc 를 *동기 강제*(~120ms, 테마 전환 굼뜸의 근본)하지만, 인라인 읽기는
+// 강제 없이 발행값을 그대로 돌려준다. 미설정/런타임 밖이면 빈 문자열(폴백 backgrounds[mode]).
 function appBackground(): string {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") {
-    return "";
-  }
-  return getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  if (typeof document === "undefined") return "";
+  return document.documentElement.style.getPropertyValue("--bg").trim();
 }
 
 // 모드 + 앱 배경 → xterm ITheme. background 는 앱 --bg(불투명) 우선, 비면 backgrounds[mode] 폴백.

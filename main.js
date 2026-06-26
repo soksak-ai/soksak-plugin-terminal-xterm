@@ -14649,10 +14649,8 @@ function currentMode() {
   return m2 === "light" ? "light" : "dark";
 }
 function appBackground() {
-  if (typeof document === "undefined" || typeof getComputedStyle !== "function") {
-    return "";
-  }
-  return getComputedStyle(document.documentElement).getPropertyValue("--bg").trim();
+  if (typeof document === "undefined") return "";
+  return document.documentElement.style.getPropertyValue("--bg").trim();
 }
 function themeFor(mode = currentMode()) {
   const base = palettes[mode];
@@ -14721,22 +14719,55 @@ async function createTerminal(options) {
     }
   };
   setRenderer(s15?.xtermRenderer ?? "dom");
-  let lastThemeJson = "";
+  let lastThemeJson = JSON.stringify(options.theme ?? themeFor());
+  let pendingTheme = null;
+  const isVisible = () => {
+    const el2 = term.element;
+    if (!el2) return false;
+    const cv = el2.checkVisibility;
+    if (typeof cv === "function") return cv.call(el2, { visibilityProperty: true });
+    return window.getComputedStyle(el2).visibility !== "hidden";
+  };
+  let themeRaf = 0;
+  const applyThemeNow = (next) => {
+    term.options.theme = next;
+    webgl?.clearTextureAtlas();
+    term.refresh(0, term.rows - 1);
+  };
+  const scheduleVisibleTheme = (next) => {
+    if (themeRaf) cancelAnimationFrame(themeRaf);
+    themeRaf = requestAnimationFrame(() => {
+      themeRaf = 0;
+      applyThemeNow(next);
+    });
+  };
   const applyTheme = () => {
     const next = themeFor();
     const nextJson = JSON.stringify(next);
     if (nextJson === lastThemeJson) return;
     lastThemeJson = nextJson;
-    term.options.theme = next;
-    webgl?.clearTextureAtlas();
-    term.refresh(0, term.rows - 1);
+    if (isVisible()) {
+      pendingTheme = null;
+      scheduleVisibleTheme(next);
+    } else {
+      pendingTheme = next;
+    }
   };
-  lastThemeJson = JSON.stringify(options.theme ?? themeFor());
   const themeObserver = new MutationObserver(() => applyTheme());
   themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ["data-theme-epoch"]
   });
+  const visObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting && pendingTheme) {
+        const t = pendingTheme;
+        pendingTheme = null;
+        applyThemeNow(t);
+      }
+    }
+  });
+  if (term.element) visObserver.observe(term.element);
   const fitTerminal = () => {
     if (container.clientWidth === 0 || container.clientHeight === 0) {
       return;
@@ -14836,6 +14867,8 @@ async function createTerminal(options) {
     });
     container.removeEventListener("paste", onPaste, true);
     themeObserver.disconnect();
+    visObserver.disconnect();
+    if (themeRaf) cancelAnimationFrame(themeRaf);
     term.dispose();
     webgl?.dispose();
     return {
@@ -14951,6 +14984,8 @@ async function createTerminal(options) {
     dataSubInput.dispose();
     dataSub?.dispose();
     themeObserver.disconnect();
+    visObserver.disconnect();
+    if (themeRaf) cancelAnimationFrame(themeRaf);
     if (termId !== 0) {
       pty.close(termId).catch(() => {
       });
