@@ -58,7 +58,15 @@ async function setupBlockPersistence(
     if (e.paneId === viewId) startTs = Date.now();
   });
   const unEnd = app.events.on("turn.ended", (p) => {
-    const e = p as { source?: string; paneId?: string; command?: string | null; cwd?: string | null; exitCode?: number };
+    const e = p as {
+      source?: string;
+      paneId?: string;
+      command?: string | null;
+      cwd?: string | null;
+      exitCode?: number;
+      agentKind?: string | null; // [단계⑤] claude/codex 이면 종류
+      sessionId?: string | null; // [단계⑤] 그 세션 id(코어 ai_session 매칭) — 복원 후 이어가기 토대
+    };
     if (e.source !== "shell" || e.paneId !== viewId) return;
     const output = inst.readBuffer(); // 화면 텍스트(plain; ANSI 보존은 후속 addon-serialize)
     void data
@@ -70,6 +78,8 @@ async function setupBlockPersistence(
           output,
           cwd: e.cwd ?? null,
           exitCode: e.exitCode ?? null,
+          agentKind: e.agentKind ?? null, // 계보(R2 스키마) — 비-에이전트 명령은 null
+          sessionId: e.sessionId ?? null,
           startTs,
           endTs: Date.now(),
         },

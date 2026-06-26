@@ -15104,6 +15104,9 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
         output,
         cwd: e.cwd ?? null,
         exitCode: e.exitCode ?? null,
+        agentKind: e.agentKind ?? null,
+        // 계보(R2 스키마) — 비-에이전트 명령은 null
+        sessionId: e.sessionId ?? null,
         startTs,
         endTs: Date.now()
       },
