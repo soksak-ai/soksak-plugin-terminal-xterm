@@ -168,6 +168,13 @@
           "ko": "지우기",
           "en": "Clear"
         }
+      },
+      {
+        "name": "resume",
+        "title": {
+          "ko": "세션 이어가기",
+          "en": "Resume Session"
+        }
       }
     ],
     "nodes": [

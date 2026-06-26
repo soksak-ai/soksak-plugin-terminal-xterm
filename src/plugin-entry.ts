@@ -39,10 +39,20 @@ async function setupBlockPersistence(
         order: "created",
         desc: false,
         limit: RESTORE_N,
-      })) as Array<{ commandLine?: string | null; output?: string | null; exitCode?: number | null }>;
+      })) as Array<{
+        commandLine?: string | null;
+        output?: string | null;
+        exitCode?: number | null;
+        sessionId?: string | null;
+        verified?: boolean | null; // [R9] lock 중 저장분(미인증)이면 false → resume affordance 차단
+      }>;
       for (const b of blocks) {
-        // "[복원됨]" dim 마커로 라이브와 구분(R4). output 은 그대로 write(ANSI 보존은 단계 후 addon-serialize).
-        const head = `\x1b[2m[복원됨${b.commandLine ? ` ${b.commandLine}` : ""}]\x1b[0m\r\n`;
+        // [R9] sessionId 가 있고 인증된(verified !== false) claude 블록만 '이어가기' 힌트. lock 중 저장된
+        // 위조 가능 블록(verified===false)엔 affordance 를 안 띄운다(위조 history→공격자 resume 차단).
+        const resumable = b.sessionId && b.verified !== false;
+        const hint = resumable ? ` · sok terminal.resume {"session":"${b.sessionId}"}` : "";
+        // "[복원됨]" dim 마커로 라이브와 구분(R4). output 은 그대로 write(ANSI 보존은 후속 addon-serialize).
+        const head = `\x1b[2m[복원됨${b.commandLine ? ` ${b.commandLine}` : ""}${hint}]\x1b[0m\r\n`;
         inst.write(head + (b.output ?? "") + "\r\n");
       }
     } catch {
@@ -50,6 +60,10 @@ async function setupBlockPersistence(
     }
   };
   await hydrate(); // mount 시 1회(평문이거나 이미 unlock 이면 즉시 복원)
+
+  // [R9] vault lock 동안 저장된 블록은 미인증(발신자 인증 없는 공개키 봉인 — 위조 가능) → verified=false.
+  // 이어가기 affordance 를 그런 블록엔 안 띄운다. lock/unlock 이벤트로 갱신(아래 onLocked/onUnlocked).
+  let locked = false;
 
   // 저장(R3): turn.ended(shell) 시 블록 기록 + retention. 시작 시각 추적(startTs).
   let startTs = Date.now();
@@ -80,6 +94,7 @@ async function setupBlockPersistence(
           exitCode: e.exitCode ?? null,
           agentKind: e.agentKind ?? null, // 계보(R2 스키마) — 비-에이전트 명령은 null
           sessionId: e.sessionId ?? null,
+          verified: !locked, // [R9] lock 중 저장이면 미인증 → 복원 시 resume affordance 차단
           startTs,
           endTs: Date.now(),
         },
@@ -94,6 +109,7 @@ async function setupBlockPersistence(
   // 복원된 블록·라이브 출력에 남은 비밀 echo 를 메모리/화면에서 지운다. 잠금은 사용자 의도적 행위(수동
   // 또는 opt-in idle)라 무조건 clear 가 안전한 기본값. PTY(뒷단)는 코어 소유라 계속 산다.
   const onLocked = () => {
+    locked = true; // 이후 저장 블록은 미인증(R9)
     try {
       inst.setScreenSuspended(true); // 잠금 중 새 PTY 출력 미페인트(평문 미노출, ACK 는 지속)
       inst.clear(); // 기존 화면 평문 폐기
@@ -106,6 +122,7 @@ async function setupBlockPersistence(
   // [단계④·R14] unlock 시 sealed 기록에서 재-hydrate — 잠금 중 clear 한 화면(+잠금 동안 봉인 저장된 뒷단
   // 블록)을 복원한다. clear 후 hydrate 로 잔여 평문 라이브 출력도 비우고 sealed 블록만 다시 그린다.
   const onUnlocked = () => {
+    locked = false;
     try {
       inst.setScreenSuspended(false); // 화면 페인트 재개
       inst.clear(); // 잠금 직전 잔여 비우고 sealed 기록만 다시 그린다

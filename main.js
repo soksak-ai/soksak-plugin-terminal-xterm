@@ -15057,6 +15057,28 @@ function registerCommands(ctx) {
       }
     })
   );
+  sub(
+    app.commands.register("resume", {
+      // [단계⑤/R9] 복원된 블록의 claude 세션을 이어간다 — 사용자 명시 액션만(auto-trigger 0). 복원 표식
+      // (verified 한 sessionId 블록)에서 이 커맨드를 부른다. sessionId 는 UUID 화이트리스트로 엄격 검증해
+      // (코어 ai_session::is_valid_session_id 와 동일 RFC4122 표준 — PTY 로 들어가는 위험 작업이라 양쪽
+      // 게이트, defense-in-depth) 위조 history·셸 injection 을 차단한다. UUID 엔 특수문자가 없어 안전.
+      description: "Resume a tracked claude session in the active terminal by its sessionId. User-initiated only; the sessionId must be a valid UUID.",
+      triggers: { ko: "\uC138\uC158 \uC774\uC5B4\uAC00\uAE30 \uC7AC\uAC1C resume" },
+      params: { session: { type: "string", description: "claude sessionId (UUID) to resume", required: true } },
+      returns: "{ ok, session }",
+      handler: (p2) => {
+        const sid = String(p2.session ?? "").trim();
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) {
+          return { ok: false, error: "invalid sessionId (UUID required)" };
+        }
+        const inst = firstTerminal();
+        if (!inst) return { ok: false, error: "no active terminal" };
+        inst.sendInput(`claude --resume ${sid}\r`);
+        return { ok: true, session: sid };
+      }
+    })
+  );
 }
 
 // src/plugin-entry.ts
@@ -15079,7 +15101,9 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
         limit: RESTORE_N
       });
       for (const b3 of blocks) {
-        const head = `\x1B[2m[\uBCF5\uC6D0\uB428${b3.commandLine ? ` ${b3.commandLine}` : ""}]\x1B[0m\r
+        const resumable = b3.sessionId && b3.verified !== false;
+        const hint = resumable ? ` \xB7 sok terminal.resume {"session":"${b3.sessionId}"}` : "";
+        const head = `\x1B[2m[\uBCF5\uC6D0\uB428${b3.commandLine ? ` ${b3.commandLine}` : ""}${hint}]\x1B[0m\r
 `;
         inst.write(head + (b3.output ?? "") + "\r\n");
       }
@@ -15087,6 +15111,7 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
     }
   };
   await hydrate();
+  let locked = false;
   let startTs = Date.now();
   const unStart = app.events.on("command.started", (p2) => {
     const e = p2;
@@ -15107,6 +15132,8 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
         agentKind: e.agentKind ?? null,
         // 계보(R2 스키마) — 비-에이전트 명령은 null
         sessionId: e.sessionId ?? null,
+        verified: !locked,
+        // [R9] lock 중 저장이면 미인증 → 복원 시 resume affordance 차단
         startTs,
         endTs: Date.now()
       },
@@ -15115,6 +15142,7 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
     });
   });
   const onLocked = () => {
+    locked = true;
     try {
       inst.setScreenSuspended(true);
       inst.clear();
@@ -15123,6 +15151,7 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
   };
   window.addEventListener("soksak:vault-locked", onLocked);
   const onUnlocked = () => {
+    locked = false;
     try {
       inst.setScreenSuspended(false);
       inst.clear();
