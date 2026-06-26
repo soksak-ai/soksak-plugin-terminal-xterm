@@ -14793,16 +14793,29 @@ async function createTerminal(options) {
   };
   container.addEventListener("paste", onPaste, true);
   let dataSub = null;
+  let screenSuspended = false;
+  let suspendedBuf = "";
+  const SUSPEND_BUF_CAP = 256 * 1024;
+  const suspendDecoder = new TextDecoder();
   const wireOutput = () => {
     dataSub = pty.onData(termId, (bytes) => {
-      term.write(bytes, () => {
+      const doAck = () => {
         ackPending += bytes.length;
         if (ackPending >= FLOW_ACK_SIZE && termId !== 0) {
           pty.ack(termId, ackPending).catch(() => {
           });
           ackPending = 0;
         }
-      });
+      };
+      if (screenSuspended) {
+        suspendedBuf += suspendDecoder.decode(bytes, { stream: true });
+        if (suspendedBuf.length > SUSPEND_BUF_CAP) {
+          suspendedBuf = suspendedBuf.slice(-SUSPEND_BUF_CAP);
+        }
+        doAck();
+        return;
+      }
+      term.write(bytes, doAck);
     });
   };
   termId = await pty.spawn({
@@ -14835,6 +14848,8 @@ async function createTerminal(options) {
       write: () => {
       },
       clear: () => {
+      },
+      setScreenSuspended: () => {
       },
       applySettings: () => {
       }
@@ -14945,6 +14960,7 @@ async function createTerminal(options) {
     paste: (text) => term.paste(text),
     sendInput: (data) => writeToPty(data),
     readBuffer: (lines) => {
+      if (screenSuspended) return suspendedBuf;
       const buf = term.buffer.active;
       const line = (i8) => buf.getLine(i8)?.translateToString(true) ?? "";
       let end = buf.length - 1;
@@ -14958,6 +14974,10 @@ async function createTerminal(options) {
     write: (data) => term.write(data),
     // 화면 직접(PTY 우회 — 복원 inert)
     clear: () => term.clear(),
+    setScreenSuspended: (s16) => {
+      screenSuspended = s16;
+      if (!s16) suspendedBuf = "";
+    },
     applySettings: (next) => {
       if (next.fontFamily) term.options.fontFamily = next.fontFamily;
       if (next.fontSize != null) term.options.fontSize = next.fontSize;
@@ -15049,21 +15069,24 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
   const scope = vctx.root ?? vctx.projectId ?? "default";
   await data.define(BLOCKS_COLL, { indexes: ["viewId", "startTs"], fts: ["commandLine"] }).catch(() => {
   });
-  try {
-    const blocks = await data.query(BLOCKS_COLL, {
-      scope,
-      where: { viewId },
-      order: "created",
-      desc: false,
-      limit: RESTORE_N
-    });
-    for (const b3 of blocks) {
-      const head = `\x1B[2m[\uBCF5\uC6D0\uB428${b3.commandLine ? ` ${b3.commandLine}` : ""}]\x1B[0m\r
+  const hydrate = async () => {
+    try {
+      const blocks = await data.query(BLOCKS_COLL, {
+        scope,
+        where: { viewId },
+        order: "created",
+        desc: false,
+        limit: RESTORE_N
+      });
+      for (const b3 of blocks) {
+        const head = `\x1B[2m[\uBCF5\uC6D0\uB428${b3.commandLine ? ` ${b3.commandLine}` : ""}]\x1B[0m\r
 `;
-      inst.write(head + (b3.output ?? "") + "\r\n");
+        inst.write(head + (b3.output ?? "") + "\r\n");
+      }
+    } catch {
     }
-  } catch {
-  }
+  };
+  await hydrate();
   let startTs = Date.now();
   const unStart = app.events.on("command.started", (p2) => {
     const e = p2;
@@ -15090,16 +15113,27 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
   });
   const onLocked = () => {
     try {
+      inst.setScreenSuspended(true);
       inst.clear();
     } catch {
     }
   };
   window.addEventListener("soksak:vault-locked", onLocked);
+  const onUnlocked = () => {
+    try {
+      inst.setScreenSuspended(false);
+      inst.clear();
+    } catch {
+    }
+    void hydrate();
+  };
+  window.addEventListener("soksak:vault-unlocked", onUnlocked);
   return {
     dispose: () => {
       unStart.dispose();
       unEnd.dispose();
       window.removeEventListener("soksak:vault-locked", onLocked);
+      window.removeEventListener("soksak:vault-unlocked", onUnlocked);
     }
   };
 }
