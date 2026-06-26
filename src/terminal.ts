@@ -92,6 +92,9 @@ export interface TerminalInstance {
   /** 화면에 직접 write(PTY 우회 — 복원 텍스트 등 inert, 재실행 0). */
   write(data: string): void;
   clear(): void;
+  /** [R14] 화면 페인트 일시중단 — true 면 PTY 출력을 화면에 안 그린다(평문 미노출). ACK(플로우
+   *  컨트롤)는 계속 보내 PTY 가 막히지 않는다(backend drain 지속). vault lock 중 사용, unlock 시 false. */
+  setScreenSuspended(suspended: boolean): void;
   applySettings(s: TermSettings): void;
 }
 
@@ -311,16 +314,32 @@ export async function createTerminal(
   // 출력도 버퍼링하므로 손실이 없다 — 단 ptyId 가 확정된 뒤에만 등록할 수 있어 spawn 완료
   // 후 연결한다. ACK 플로우 컨트롤은 5k 누적마다 보낸다.
   let dataSub: Disposable | null = null;
+  let screenSuspended = false; // [R14] lock 중 true — 화면 미페인트(평문 미노출), ACK 는 지속.
+  // [R14/C4] 잠금 중 PTY 출력 누적 — 화면엔 안 그려도 봉인 저장(turn.ended→readBuffer)은 돼야 한다.
+  // 화면 readBuffer 가 비므로 이 버퍼를 대신 반환. 마지막 CAP 바이트만 유지(메모리 바운드).
+  let suspendedBuf = "";
+  const SUSPEND_BUF_CAP = 256 * 1024;
+  const suspendDecoder = new TextDecoder();
   const wireOutput = () => {
     dataSub = pty.onData(termId, (bytes: Uint8Array) => {
-      term.write(bytes, () => {
-        // 콜백 = 파서가 데이터를 처리 완료한 시점. 누적 후 5k 마다 ack.
+      // ACK(플로우 컨트롤) — 화면 페인트 여부와 무관하게 누적 후 5k 마다 보낸다(PTY drain 지속).
+      const doAck = () => {
         ackPending += bytes.length;
         if (ackPending >= FLOW_ACK_SIZE && termId !== 0) {
           pty.ack(termId, ackPending).catch(() => {});
           ackPending = 0;
         }
-      });
+      };
+      if (screenSuspended) {
+        // [R14] 잠금 중: 화면에 안 그린다(평문 미노출) — 단 출력은 누적(봉인 저장용) + ACK 지속.
+        suspendedBuf += suspendDecoder.decode(bytes, { stream: true });
+        if (suspendedBuf.length > SUSPEND_BUF_CAP) {
+          suspendedBuf = suspendedBuf.slice(-SUSPEND_BUF_CAP);
+        }
+        doAck();
+        return;
+      }
+      term.write(bytes, doAck);
     });
   };
 
@@ -351,6 +370,7 @@ export async function createTerminal(
       readBuffer: () => "",
       write: () => {},
       clear: () => {},
+      setScreenSuspended: () => {},
       applySettings: () => {},
     };
   }
@@ -508,6 +528,9 @@ export async function createTerminal(
     paste: (text: string) => term.paste(text),
     sendInput: (data: string) => writeToPty(data),
     readBuffer: (lines?: number) => {
+      // [R14/C4] 잠금 중엔 화면이 비어 있으므로(미페인트) 누적 버퍼를 반환 — lock 중 명령 출력도
+      // turn.ended 시 봉인 저장된다("뒷단 seal 지속"). unlock(setScreenSuspended(false))에서 비워진다.
+      if (screenSuspended) return suspendedBuf;
       // 활성 버퍼(일반=스크롤백 포함, TUI alternate=현재 화면)를 줄 텍스트로 직렬화.
       // "끝에서 N줄"은 내용이 있는 마지막 줄 기준 — 커서 아래의 빈 뷰포트 줄은 제외.
       const buf = term.buffer.active;
@@ -522,6 +545,10 @@ export async function createTerminal(
     },
     write: (data: string) => term.write(data), // 화면 직접(PTY 우회 — 복원 inert)
     clear: () => term.clear(),
+    setScreenSuspended: (s: boolean) => {
+      screenSuspended = s;
+      if (!s) suspendedBuf = ""; // 재개 시 누적 비움 — unlock hydrate 가 sealed 기록으로 복원한다.
+    },
     applySettings: (next: TermSettings) => {
       // TermSettings 는 전 필드 optional — 들어온 값만 대입한다.
       if (next.fontFamily) term.options.fontFamily = next.fontFamily;

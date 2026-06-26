@@ -29,23 +29,27 @@ async function setupBlockPersistence(
   // 컬렉션 정의(멱등) — viewId 인덱스(복원 조회), commandLine FTS(검색). output 은 평문(단계② 가 암호화).
   await data.define(BLOCKS_COLL, { indexes: ["viewId", "startTs"], fts: ["commandLine"] }).catch(() => {});
 
-  // 복원(R4): 이 viewId 의 마지막 N 블록(created 순) → inert text. 재실행 안 함(A6).
-  try {
-    const blocks = (await data.query(BLOCKS_COLL, {
-      scope,
-      where: { viewId },
-      order: "created",
-      desc: false,
-      limit: RESTORE_N,
-    })) as Array<{ commandLine?: string | null; output?: string | null; exitCode?: number | null }>;
-    for (const b of blocks) {
-      // "[복원됨]" dim 마커로 라이브와 구분(R4). output 은 그대로 write(ANSI 보존은 단계 후 addon-serialize).
-      const head = `\x1b[2m[복원됨${b.commandLine ? ` ${b.commandLine}` : ""}]\x1b[0m\r\n`;
-      inst.write(head + (b.output ?? "") + "\r\n");
+  // 복원(R4): 이 viewId 의 마지막 N 블록(created 순) → inert text. 재실행 안 함(A6). 암호화 scope 가
+  // lock 이면 query 가 Err → catch(미페인트) → unlock broadcast 시 재호출(아래 onUnlocked).
+  const hydrate = async () => {
+    try {
+      const blocks = (await data.query(BLOCKS_COLL, {
+        scope,
+        where: { viewId },
+        order: "created",
+        desc: false,
+        limit: RESTORE_N,
+      })) as Array<{ commandLine?: string | null; output?: string | null; exitCode?: number | null }>;
+      for (const b of blocks) {
+        // "[복원됨]" dim 마커로 라이브와 구분(R4). output 은 그대로 write(ANSI 보존은 단계 후 addon-serialize).
+        const head = `\x1b[2m[복원됨${b.commandLine ? ` ${b.commandLine}` : ""}]\x1b[0m\r\n`;
+        inst.write(head + (b.output ?? "") + "\r\n");
+      }
+    } catch {
+      /* 복원 실패(잠김 등)는 라이브 동작 비차단 — unlock 시 재시도 */
     }
-  } catch {
-    /* 복원 실패는 라이브 동작 비차단 */
-  }
+  };
+  await hydrate(); // mount 시 1회(평문이거나 이미 unlock 이면 즉시 복원)
 
   // 저장(R3): turn.ended(shell) 시 블록 기록 + retention. 시작 시각 추적(startTs).
   let startTs = Date.now();
@@ -81,18 +85,33 @@ async function setupBlockPersistence(
   // 또는 opt-in idle)라 무조건 clear 가 안전한 기본값. PTY(뒷단)는 코어 소유라 계속 산다.
   const onLocked = () => {
     try {
-      inst.clear();
+      inst.setScreenSuspended(true); // 잠금 중 새 PTY 출력 미페인트(평문 미노출, ACK 는 지속)
+      inst.clear(); // 기존 화면 평문 폐기
     } catch {
       /* clear 실패는 라이브 동작 비차단 */
     }
   };
   window.addEventListener("soksak:vault-locked", onLocked);
 
+  // [단계④·R14] unlock 시 sealed 기록에서 재-hydrate — 잠금 중 clear 한 화면(+잠금 동안 봉인 저장된 뒷단
+  // 블록)을 복원한다. clear 후 hydrate 로 잔여 평문 라이브 출력도 비우고 sealed 블록만 다시 그린다.
+  const onUnlocked = () => {
+    try {
+      inst.setScreenSuspended(false); // 화면 페인트 재개
+      inst.clear(); // 잠금 직전 잔여 비우고 sealed 기록만 다시 그린다
+    } catch {
+      /* clear 실패 무시 */
+    }
+    void hydrate();
+  };
+  window.addEventListener("soksak:vault-unlocked", onUnlocked);
+
   return {
     dispose: () => {
       unStart.dispose();
       unEnd.dispose();
       window.removeEventListener("soksak:vault-locked", onLocked);
+      window.removeEventListener("soksak:vault-unlocked", onUnlocked);
     },
   };
 }
