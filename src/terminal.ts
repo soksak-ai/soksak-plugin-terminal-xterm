@@ -212,22 +212,14 @@ export async function createTerminal(
     if (typeof cv === "function") return cv.call(el, { visibilityProperty: true });
     return window.getComputedStyle(el).visibility !== "hidden";
   };
-  // term.options.theme 설정은 xterm dom 렌더러가 ~512 색 클래스를 재생성해 보이는 터미널 1개당 ~100ms
-  // 든다(실측). 동기로 하면 테마/⌘다크라이트 토글이 그만큼 메인스레드를 막아 굼뜨다. 그래서 비싼 재테마를
-  // requestAnimationFrame 으로 토글의 임계경로에서 뺀다 — CSS 변수로 칠해지는 앱 크롬(화면 대부분)은 코어가
-  // 즉시 갱신하고, 터미널 색은 다음 프레임에 따라온다(불일치 ≤1프레임 ≈16ms, 사람 눈엔 즉각). 연타는 coalesce.
-  let themeRaf = 0;
+  // term.options.theme 설정은 xterm dom 렌더러가 색 스타일시트를 교체해 *문서 style recalc* 를 유발한다.
+  // 그 recalc 가 비싼 이유는 파킹된 비활성 탭 터미널 DOM 까지 포함했기 때문 → 코어 layerPark 가 파킹분에
+  // content-visibility:hidden 을 줘 recalc 에서 제외한다(렌더만 스킵, 상태 보존). 그래서 여기선
+  // 보이는 터미널만 동기 적용(원자적 — 크롬과 같은 프레임), 파킹분은 표시될 때 1회 적용한다.
   const applyThemeNow = (next: ITheme) => {
-    term.options.theme = next; // 색 스타일시트 재생성(~100ms) — rAF 안에서(토글 비차단) 또는 표시 시점.
+    term.options.theme = next;
     webgl?.clearTextureAtlas();
     term.refresh(0, term.rows - 1);
-  };
-  const scheduleVisibleTheme = (next: ITheme) => {
-    if (themeRaf) cancelAnimationFrame(themeRaf);
-    themeRaf = requestAnimationFrame(() => {
-      themeRaf = 0;
-      applyThemeNow(next);
-    });
   };
   const applyTheme = () => {
     const next = themeFor();
@@ -236,7 +228,7 @@ export async function createTerminal(
     lastThemeJson = nextJson;
     if (isVisible()) {
       pendingTheme = null;
-      scheduleVisibleTheme(next); // 보이는 터미널 — 다음 프레임에 재테마(토글 비차단)
+      applyThemeNow(next); // 보이는 터미널 — 크롬과 같은 프레임에 동기 적용(원자적 — stagger 없음)
     } else {
       pendingTheme = next; // 파킹 — 표시 시(IntersectionObserver) 1회 적용
     }
@@ -410,7 +402,7 @@ export async function createTerminal(
   if (disposed) {
     pty.close(termId).catch(() => {});
     container.removeEventListener("paste", onPaste, true);
-    themeObserver.disconnect();    visObserver.disconnect();    if (themeRaf) cancelAnimationFrame(themeRaf);
+    themeObserver.disconnect();    visObserver.disconnect();
     term.dispose();
     webgl?.dispose();
     return {
@@ -563,7 +555,7 @@ export async function createTerminal(
     dataSubInput.dispose();
     // PTY 출력 구독(dataSub)·테마 옵저버를 해지한다.
     dataSub?.dispose();
-    themeObserver.disconnect();    visObserver.disconnect();    if (themeRaf) cancelAnimationFrame(themeRaf);
+    themeObserver.disconnect();    visObserver.disconnect();
     if (termId !== 0) {
       pty.close(termId).catch(() => {});
     }

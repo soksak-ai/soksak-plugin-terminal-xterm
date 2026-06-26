@@ -14728,18 +14728,10 @@ async function createTerminal(options) {
     if (typeof cv === "function") return cv.call(el2, { visibilityProperty: true });
     return window.getComputedStyle(el2).visibility !== "hidden";
   };
-  let themeRaf = 0;
   const applyThemeNow = (next) => {
     term.options.theme = next;
     webgl?.clearTextureAtlas();
     term.refresh(0, term.rows - 1);
-  };
-  const scheduleVisibleTheme = (next) => {
-    if (themeRaf) cancelAnimationFrame(themeRaf);
-    themeRaf = requestAnimationFrame(() => {
-      themeRaf = 0;
-      applyThemeNow(next);
-    });
   };
   const applyTheme = () => {
     const next = themeFor();
@@ -14748,7 +14740,7 @@ async function createTerminal(options) {
     lastThemeJson = nextJson;
     if (isVisible()) {
       pendingTheme = null;
-      scheduleVisibleTheme(next);
+      applyThemeNow(next);
     } else {
       pendingTheme = next;
     }
@@ -14868,7 +14860,6 @@ async function createTerminal(options) {
     container.removeEventListener("paste", onPaste, true);
     themeObserver.disconnect();
     visObserver.disconnect();
-    if (themeRaf) cancelAnimationFrame(themeRaf);
     term.dispose();
     webgl?.dispose();
     return {
@@ -14985,7 +14976,6 @@ async function createTerminal(options) {
     dataSub?.dispose();
     themeObserver.disconnect();
     visObserver.disconnect();
-    if (themeRaf) cancelAnimationFrame(themeRaf);
     if (termId !== 0) {
       pty.close(termId).catch(() => {
       });
