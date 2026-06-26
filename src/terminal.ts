@@ -197,15 +197,27 @@ export async function createTerminal(
   // 앱 테마 라이브 추종 — 앱이 발행하는 DOM 계약(documentElement.dataset.themeMode +
   // :root --bg) 변화를 MutationObserver 로 관찰해 xterm 테마를 재적용한다(폴링 없음).
   // 적용 = 색 교체 + 아틀라스 비우기.
+  // [성능] 색 토큰이 실제로 바뀐 경우에만 아틀라스 비우기+전체 재렌더(비싸다). 같은 테마 재적용·
+  // 무관 변이엔 no-op. 직전 적용 테마를 직렬화 비교(themeFor 는 getComputedStyle 1회 — epoch 변경 시에만 탄다).
+  let lastThemeJson = "";
   const applyTheme = () => {
-    term.options.theme = themeFor();
+    const next = themeFor();
+    const nextJson = JSON.stringify(next);
+    if (nextJson === lastThemeJson) return; // 색 무변경 → reflow/refresh 0
+    lastThemeJson = nextJson;
+    term.options.theme = next;
     webgl?.clearTextureAtlas();
     term.refresh(0, term.rows - 1);
   };
+  lastThemeJson = JSON.stringify(options.theme ?? themeFor()); // 생성 시 적용분 기록(초기 중복 refresh 방지)
+  // [성능 RULE] 테마 변경 단일 신호 data-theme-epoch 만 관찰한다. 과거엔 ["data-theme-mode","style"] 를
+  // 관찰해, ⌘±(--app-font-size 가 style 에 씀) 같은 테마-무관 style 변이마다 전 터미널이 getComputedStyle
+  // (강제 reflow)+clearTextureAtlas+refresh 를 돌았다(O(N) CPU 폭풍, 폰트↔터미널 결합). epoch 는 코어
+  // applyThemeToDom 이 실제 테마 적용 시에만 올린다 → 폰트/기타 style 변이와 완전 분리.
   const themeObserver = new MutationObserver(() => applyTheme());
   themeObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme-mode", "style"],
+    attributeFilter: ["data-theme-epoch"],
   });
 
   // 직접 fit: 컨테이너 전체 크기로 행/열 계산. FitAddon 은 스크롤바용 14px 를 가용

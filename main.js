@@ -14721,15 +14721,21 @@ async function createTerminal(options) {
     }
   };
   setRenderer(s15?.xtermRenderer ?? "dom");
+  let lastThemeJson = "";
   const applyTheme = () => {
-    term.options.theme = themeFor();
+    const next = themeFor();
+    const nextJson = JSON.stringify(next);
+    if (nextJson === lastThemeJson) return;
+    lastThemeJson = nextJson;
+    term.options.theme = next;
     webgl?.clearTextureAtlas();
     term.refresh(0, term.rows - 1);
   };
+  lastThemeJson = JSON.stringify(options.theme ?? themeFor());
   const themeObserver = new MutationObserver(() => applyTheme());
   themeObserver.observe(document.documentElement, {
     attributes: true,
-    attributeFilter: ["data-theme-mode", "style"]
+    attributeFilter: ["data-theme-epoch"]
   });
   const fitTerminal = () => {
     if (container.clientWidth === 0 || container.clientHeight === 0) {
