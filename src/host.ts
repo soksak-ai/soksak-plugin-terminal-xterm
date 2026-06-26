@@ -84,6 +84,26 @@ export interface PluginApi {
   events: {
     on: (event: string, fn: (payload: unknown) => void) => Disposable;
   };
+  // app.data — 코어 영속 저장(records). 터미널이 명령 블록을 저장/복원·retention(R1~R5). "data" 권한 필요.
+  data?: {
+    define: (collection: string, opts: { indexes?: string[]; fts?: string[] }) => Promise<void>;
+    put: (
+      collection: string,
+      doc: Record<string, unknown>,
+      opts?: { scope?: string; id?: string },
+    ) => Promise<string>;
+    query: (
+      collection: string,
+      opts?: {
+        scope?: string;
+        where?: Record<string, unknown>;
+        order?: string;
+        desc?: boolean;
+        limit?: number;
+      },
+    ) => Promise<unknown[]>;
+    retentionTrim: (collection: string, scope: string, cap: number) => Promise<number>;
+  };
   ui?: {
     registerView: (viewId: string, provider: PluginViewProvider) => Disposable;
   };

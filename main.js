@@ -14832,6 +14832,8 @@ async function createTerminal(options) {
       paste: () => {
       },
       readBuffer: () => "",
+      write: () => {
+      },
       clear: () => {
       },
       applySettings: () => {
@@ -14953,6 +14955,8 @@ async function createTerminal(options) {
       for (let i8 = end + 1 - want; i8 <= end; i8++) out.push(line(i8));
       return out.join("\n");
     },
+    write: (data) => term.write(data),
+    // 화면 직접(PTY 우회 — 복원 inert)
     clear: () => term.clear(),
     applySettings: (next) => {
       if (next.fontFamily) term.options.fontFamily = next.fontFamily;
@@ -15036,6 +15040,59 @@ function registerCommands(ctx) {
 }
 
 // src/plugin-entry.ts
+var BLOCKS_COLL = "command_blocks";
+var RESTORE_N = 50;
+var RETAIN_CAP = 1e3;
+async function setupBlockPersistence(app, vctx, viewId, inst) {
+  const data = app.data;
+  if (!data) return null;
+  const scope = vctx.root ?? vctx.projectId ?? "default";
+  await data.define(BLOCKS_COLL, { indexes: ["viewId", "startTs"], fts: ["commandLine"] }).catch(() => {
+  });
+  try {
+    const blocks = await data.query(BLOCKS_COLL, {
+      scope,
+      where: { viewId },
+      order: "created",
+      desc: false,
+      limit: RESTORE_N
+    });
+    for (const b3 of blocks) {
+      const head = `\x1B[2m[\uBCF5\uC6D0\uB428${b3.commandLine ? ` ${b3.commandLine}` : ""}]\x1B[0m\r
+`;
+      inst.write(head + (b3.output ?? "") + "\r\n");
+    }
+  } catch {
+  }
+  let startTs = Date.now();
+  const unStart = app.events.on("command.started", (p2) => {
+    const e = p2;
+    if (e.paneId === viewId) startTs = Date.now();
+  });
+  const unEnd = app.events.on("turn.ended", (p2) => {
+    const e = p2;
+    if (e.source !== "shell" || e.paneId !== viewId) return;
+    const output = inst.readBuffer();
+    void data.put(
+      BLOCKS_COLL,
+      {
+        viewId,
+        commandLine: e.command ?? null,
+        output,
+        cwd: e.cwd ?? null,
+        exitCode: e.exitCode ?? null,
+        startTs,
+        endTs: Date.now()
+      },
+      { scope }
+    ).then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP)).catch(() => {
+    });
+  });
+  return { dispose: () => {
+    unStart.dispose();
+    unEnd.dispose();
+  } };
+}
 var plugin_entry_default = {
   activate(ctx) {
     const app = ctx.app;
@@ -15102,6 +15159,9 @@ var plugin_entry_default = {
                 readBuffer: (lines) => inst.readBuffer(lines),
                 sendInput: (data) => inst.sendInput(data)
               }) ?? null;
+              setupBlockPersistence(app, vctx, viewId, inst).then((d2) => {
+                if (d2) ctx.subscriptions.push(d2);
+              });
               vctx.setStatus(null);
               vctx.setTitle("Terminal");
             }).catch((err) => {

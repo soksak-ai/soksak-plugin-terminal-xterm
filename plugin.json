@@ -16,7 +16,8 @@
     "ui",
     "commands",
     "programs",
-    "pty"
+    "pty",
+    "data"
   ],
   "configuration": [
     {

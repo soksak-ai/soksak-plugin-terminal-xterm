@@ -3,7 +3,80 @@
 import { injectStyles } from "./styles";
 import { createTerminalInstance } from "./terminal";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
-import type { PluginContext, PluginViewContext } from "./host";
+import type { Disposable, PluginApi, PluginContext, PluginViewContext } from "./host";
+import type { TerminalInstance } from "./terminal";
+
+// [단계①] 명령 블록 영속 — 코어 app.data records 에 저장(R1), 복원(R4), retention(R5).
+const BLOCKS_COLL = "command_blocks";
+const RESTORE_N = 50; // 복원 budget(마지막 N 블록 — startup 비용 바운드)
+const RETAIN_CAP = 1000; // view 당 보존 cap(R5, #8835 의 1000-row 권고)
+
+/**
+ * 이 터미널 뷰의 명령 블록 영속을 배선한다. "data" 권한 없으면 no-op(graceful).
+ * - 복원(R4): mount 직후 이 viewId 의 마지막 N 블록을 inert text 로 write("[복원됨]" dim 마커, 재실행 0).
+ * - 저장(R3): turn.ended(source:shell, 이 pane) 시 블록(commandLine/output/cwd/exitCode) put → retention.
+ */
+async function setupBlockPersistence(
+  app: PluginApi,
+  vctx: PluginViewContext,
+  viewId: string,
+  inst: TerminalInstance,
+): Promise<Disposable | null> {
+  const data = app.data;
+  if (!data) return null; // "data" 권한 미선언 → 복원 기능 비활성(graceful)
+  const scope = vctx.root ?? vctx.projectId ?? "default"; // 프로젝트 단위 격리
+
+  // 컬렉션 정의(멱등) — viewId 인덱스(복원 조회), commandLine FTS(검색). output 은 평문(단계② 가 암호화).
+  await data.define(BLOCKS_COLL, { indexes: ["viewId", "startTs"], fts: ["commandLine"] }).catch(() => {});
+
+  // 복원(R4): 이 viewId 의 마지막 N 블록(created 순) → inert text. 재실행 안 함(A6).
+  try {
+    const blocks = (await data.query(BLOCKS_COLL, {
+      scope,
+      where: { viewId },
+      order: "created",
+      desc: false,
+      limit: RESTORE_N,
+    })) as Array<{ commandLine?: string | null; output?: string | null; exitCode?: number | null }>;
+    for (const b of blocks) {
+      // "[복원됨]" dim 마커로 라이브와 구분(R4). output 은 그대로 write(ANSI 보존은 단계 후 addon-serialize).
+      const head = `\x1b[2m[복원됨${b.commandLine ? ` ${b.commandLine}` : ""}]\x1b[0m\r\n`;
+      inst.write(head + (b.output ?? "") + "\r\n");
+    }
+  } catch {
+    /* 복원 실패는 라이브 동작 비차단 */
+  }
+
+  // 저장(R3): turn.ended(shell) 시 블록 기록 + retention. 시작 시각 추적(startTs).
+  let startTs = Date.now();
+  const unStart = app.events.on("command.started", (p) => {
+    const e = p as { paneId?: string };
+    if (e.paneId === viewId) startTs = Date.now();
+  });
+  const unEnd = app.events.on("turn.ended", (p) => {
+    const e = p as { source?: string; paneId?: string; command?: string | null; cwd?: string | null; exitCode?: number };
+    if (e.source !== "shell" || e.paneId !== viewId) return;
+    const output = inst.readBuffer(); // 화면 텍스트(plain; ANSI 보존은 후속 addon-serialize)
+    void data
+      .put(
+        BLOCKS_COLL,
+        {
+          viewId,
+          commandLine: e.command ?? null,
+          output,
+          cwd: e.cwd ?? null,
+          exitCode: e.exitCode ?? null,
+          startTs,
+          endTs: Date.now(),
+        },
+        { scope },
+      )
+      .then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP))
+      .catch(() => {});
+  });
+
+  return { dispose: () => { unStart.dispose(); unEnd.dispose(); } };
+}
 
 export default {
   activate(ctx: PluginContext) {
@@ -91,6 +164,10 @@ export default {
                 readBuffer: (lines?: number) => inst.readBuffer(lines),
                 sendInput: (data: string) => inst.sendInput(data),
               }) ?? null;
+              // [단계①] 명령 블록 복원(R4) + 저장(R3) — "data" 권한 있을 때만. scope=projectId.
+              setupBlockPersistence(app, vctx, viewId, inst).then((d) => {
+                if (d) ctx.subscriptions.push(d);
+              });
               vctx.setStatus(null);
               vctx.setTitle("Terminal");
             }).catch((err: unknown) => {
