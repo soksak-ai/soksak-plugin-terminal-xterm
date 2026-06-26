@@ -197,28 +197,69 @@ export async function createTerminal(
   // 앱 테마 라이브 추종 — 앱이 발행하는 DOM 계약(documentElement.dataset.themeMode +
   // :root --bg) 변화를 MutationObserver 로 관찰해 xterm 테마를 재적용한다(폴링 없음).
   // 적용 = 색 교체 + 아틀라스 비우기.
-  // [성능] 색 토큰이 실제로 바뀐 경우에만 아틀라스 비우기+전체 재렌더(비싸다). 같은 테마 재적용·
-  // 무관 변이엔 no-op. 직전 적용 테마를 직렬화 비교(themeFor 는 getComputedStyle 1회 — epoch 변경 시에만 탄다).
-  let lastThemeJson = "";
-  const applyTheme = () => {
-    const next = themeFor();
-    const nextJson = JSON.stringify(next);
-    if (nextJson === lastThemeJson) return; // 색 무변경 → reflow/refresh 0
-    lastThemeJson = nextJson;
-    term.options.theme = next;
+  // [성능 — 테마/모드 전환 굼뜸의 근본] term.options.theme = next 는 xterm dom 렌더러가 색 스타일시트를
+  // 재생성하게 해 ~49ms 든다(실측). 비활성 콘텐츠 탭은 visibility:hidden + translateX(-200vw)로 파킹돼도
+  // (layerPark) DOM·xterm 인스턴스는 살아있어, 테마/⌘다크라이트 변경 시 파킹 포함 전 터미널(10개)이 동시에
+  // 스타일시트를 재생성 → ~490ms 메인스레드 블록(사용자 체감 굼뜸). 그래서 **보이는 터미널만 즉시 적용**하고,
+  // 파킹된 터미널은 적용을 미뤘다가 **보일 때(IntersectionObserver) 한 번** 적용한다(O(전체)→O(보이는)).
+  let lastThemeJson = JSON.stringify(options.theme ?? themeFor()); // 생성 시 적용분 기록(초기 중복 적용 방지)
+  let pendingTheme: ITheme | null = null; // 파킹 중 미룬 테마(보일 때 적용)
+  // 사용자에게 실제 보이나 — 파킹은 offsetParent non-null이라 computed visibility 가 정확한 신호.
+  const isVisible = (): boolean => {
+    const el = term.element;
+    if (!el) return false;
+    const cv = (el as { checkVisibility?: (o: { visibilityProperty: boolean }) => boolean }).checkVisibility;
+    if (typeof cv === "function") return cv.call(el, { visibilityProperty: true });
+    return window.getComputedStyle(el).visibility !== "hidden";
+  };
+  // term.options.theme 설정은 xterm dom 렌더러가 ~512 색 클래스를 재생성해 보이는 터미널 1개당 ~100ms
+  // 든다(실측). 동기로 하면 테마/⌘다크라이트 토글이 그만큼 메인스레드를 막아 굼뜨다. 그래서 비싼 재테마를
+  // requestAnimationFrame 으로 토글의 임계경로에서 뺀다 — CSS 변수로 칠해지는 앱 크롬(화면 대부분)은 코어가
+  // 즉시 갱신하고, 터미널 색은 다음 프레임에 따라온다(불일치 ≤1프레임 ≈16ms, 사람 눈엔 즉각). 연타는 coalesce.
+  let themeRaf = 0;
+  const applyThemeNow = (next: ITheme) => {
+    term.options.theme = next; // 색 스타일시트 재생성(~100ms) — rAF 안에서(토글 비차단) 또는 표시 시점.
     webgl?.clearTextureAtlas();
     term.refresh(0, term.rows - 1);
   };
-  lastThemeJson = JSON.stringify(options.theme ?? themeFor()); // 생성 시 적용분 기록(초기 중복 refresh 방지)
-  // [성능 RULE] 테마 변경 단일 신호 data-theme-epoch 만 관찰한다. 과거엔 ["data-theme-mode","style"] 를
-  // 관찰해, ⌘±(--app-font-size 가 style 에 씀) 같은 테마-무관 style 변이마다 전 터미널이 getComputedStyle
-  // (강제 reflow)+clearTextureAtlas+refresh 를 돌았다(O(N) CPU 폭풍, 폰트↔터미널 결합). epoch 는 코어
-  // applyThemeToDom 이 실제 테마 적용 시에만 올린다 → 폰트/기타 style 변이와 완전 분리.
+  const scheduleVisibleTheme = (next: ITheme) => {
+    if (themeRaf) cancelAnimationFrame(themeRaf);
+    themeRaf = requestAnimationFrame(() => {
+      themeRaf = 0;
+      applyThemeNow(next);
+    });
+  };
+  const applyTheme = () => {
+    const next = themeFor();
+    const nextJson = JSON.stringify(next);
+    if (nextJson === lastThemeJson) return; // 색 무변경 → 0
+    lastThemeJson = nextJson;
+    if (isVisible()) {
+      pendingTheme = null;
+      scheduleVisibleTheme(next); // 보이는 터미널 — 다음 프레임에 재테마(토글 비차단)
+    } else {
+      pendingTheme = next; // 파킹 — 표시 시(IntersectionObserver) 1회 적용
+    }
+  };
+  // [성능 RULE] 테마 변경 단일 신호 data-theme-epoch 만 관찰(폰트 등 무관 style 변이와 분리). 코어
+  // applyThemeToDom 이 실제 테마 적용 시에만 epoch 를 올린다.
   const themeObserver = new MutationObserver(() => applyTheme());
   themeObserver.observe(document.documentElement, {
     attributes: true,
     attributeFilter: ["data-theme-epoch"],
   });
+  // 파킹 해제(탭 활성 → translateX 원위치 = 뷰포트 진입) 시 미룬 테마 1회 적용. 탭 전환은 크기 불변이라
+  // resize 가 안 떠서, 가시성 전이는 IntersectionObserver 로 잡는다(폴링 0).
+  const visObserver = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting && pendingTheme) {
+        const t = pendingTheme;
+        pendingTheme = null;
+        applyThemeNow(t);
+      }
+    }
+  });
+  if (term.element) visObserver.observe(term.element);
 
   // 직접 fit: 컨테이너 전체 크기로 행/열 계산. FitAddon 은 스크롤바용 14px 를 가용
   // 너비에서 빼서 우측에 갭을 만들지만(설치된 0.11.0 기준 overviewRuler?.width || 14),
@@ -369,7 +410,7 @@ export async function createTerminal(
   if (disposed) {
     pty.close(termId).catch(() => {});
     container.removeEventListener("paste", onPaste, true);
-    themeObserver.disconnect();
+    themeObserver.disconnect();    visObserver.disconnect();    if (themeRaf) cancelAnimationFrame(themeRaf);
     term.dispose();
     webgl?.dispose();
     return {
@@ -522,7 +563,7 @@ export async function createTerminal(
     dataSubInput.dispose();
     // PTY 출력 구독(dataSub)·테마 옵저버를 해지한다.
     dataSub?.dispose();
-    themeObserver.disconnect();
+    themeObserver.disconnect();    visObserver.disconnect();    if (themeRaf) cancelAnimationFrame(themeRaf);
     if (termId !== 0) {
       pty.close(termId).catch(() => {});
     }
