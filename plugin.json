@@ -46,7 +46,7 @@
           "en": "WebGL (GPU)"
         }
       ],
-      "default": "dom",
+      "default": "webgl",
       "title": {
         "ko": "터미널 렌더러",
         "en": "Terminal renderer"

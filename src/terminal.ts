@@ -192,7 +192,12 @@ export async function createTerminal(
       webgl = undefined;
     }
   };
-  setRenderer(s?.xtermRenderer ?? "dom");
+  // 기본 렌더러 = WebGL(GPU) — VSCode·iTerm 등과 동일하게 리사이즈가 싸다(실측: 창 resize
+  // 왕복 DOM ~48ms·스파이크 134ms vs WebGL ~18ms·37ms). DOM 렌더러는 문자당 DOM 노드라
+  // 리사이즈마다 전 셀을 재래스터(글리프 셰이핑)해 느리다(xterm.js 공식 "느린 폴백"). 설정
+  // xtermRenderer=dom 으로 또렷함 우선 전환 가능(트레이드오프: WKWebView 라이브 리사이즈 중
+  // WebGL 은 GPU 레이어 stretch — 위 [렌더러 선택] @MX:ANCHOR 참조). 설정값을 따른다.
+  setRenderer(s?.xtermRenderer ?? "webgl");
 
   // 앱 테마 라이브 추종 — 앱이 발행하는 DOM 계약(documentElement.dataset.themeMode +
   // :root --bg) 변화를 MutationObserver 로 관찰해 xterm 테마를 재적용한다(폴링 없음).
@@ -528,7 +533,9 @@ export async function createTerminal(
 
   const resizeObserver = new ResizeObserver(() => doResize());
   resizeObserver.observe(container);
-  // 드래그 끝 별도 보정 신호는 없다 — ResizeObserver 만으로 reflow 한다.
+  // 리사이즈는 ResizeObserver + throttle(FIT_THROTTLE_MS)로 라이브 reflow 한다. 기본 렌더러가
+  // WebGL(GPU)이라 fit 당 비용이 싸다(실측 창 resize 왕복 ~13ms — DOM 렌더러는 ~48ms·스파이크
+  // 134ms 라 드래그가 굼뜬다). VSCode·iTerm 등과 동일 경로.
 
   // devicePixelRatio 변화(모니터 간 이동 등) → 렌더러 갱신 + 재fit.
   let dprCleanup: (() => void) | undefined;

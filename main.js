@@ -14718,7 +14718,7 @@ async function createTerminal(options) {
       webgl = void 0;
     }
   };
-  setRenderer(s15?.xtermRenderer ?? "dom");
+  setRenderer(s15?.xtermRenderer ?? "webgl");
   let lastThemeJson = JSON.stringify(options.theme ?? themeFor());
   let pendingTheme = null;
   const isVisible = () => {
