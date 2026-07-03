@@ -14,6 +14,8 @@ export interface PluginViewContext {
   viewId: string | null;
   // 마운트 시 1회 자동 실행할 명령(에이전트 프로그램 — 터미널이 PTY 로 실행). 없으면 null.
   command: string | null;
+  /** 복원 seam(B3) — 재시작 복원 마운트면 관찰됐던 런타임(cwd). 새 뷰는 null. */
+  restore?: { cwd: string | null } | null;
   setBadge: (badge: number | "dot" | null) => void;
   setStatus: (status: { code: string; message?: string } | null) => void;
   setTitle: (title: string) => void;
