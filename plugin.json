@@ -17,7 +17,9 @@
     "commands",
     "programs",
     "pty",
-    "data"
+    "data",
+    "terminal",
+    "terminal:read"
   ],
   "configuration": [
     {

@@ -15175,8 +15175,7 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
         endTs: Date.now()
       },
       { scope }
-    ).then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP)).catch(() => {
-    });
+    ).then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP)).catch((err) => console.error("[terminal] \uBE14\uB85D \uC800\uC7A5 \uC2E4\uD328:", err));
   });
   const onLocked = () => {
     locked = true;
@@ -15276,7 +15275,9 @@ var plugin_entry_default = {
               }) ?? null;
               setupBlockPersistence(app, vctx, viewId, inst).then((d2) => {
                 if (d2) ctx.subscriptions.push(d2);
-              });
+              }).catch(
+                (err) => console.error("[terminal] \uBE14\uB85D \uC601\uC18D \uBC30\uC120 \uC2E4\uD328:", err)
+              );
               vctx.setStatus(null);
               vctx.setTitle("Terminal");
             }).catch((err) => {

@@ -106,7 +106,7 @@ async function setupBlockPersistence(
         { scope },
       )
       .then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP))
-      .catch(() => {});
+      .catch((err: unknown) => console.error("[terminal] 블록 저장 실패:", err));
   });
 
   // [단계③·R14] vault 잠금 시 화면 평문 폐기 — 코어가 broadcast 하는 "soksak:vault-locked" DOM 이벤트
@@ -237,9 +237,15 @@ export default {
                 sendInput: (data: string) => inst.sendInput(data),
               }) ?? null;
               // [단계①] 명령 블록 복원(R4) + 저장(R3) — "data" 권한 있을 때만. scope=projectId.
-              setupBlockPersistence(app, vctx, viewId, inst).then((d) => {
-                if (d) ctx.subscriptions.push(d);
-              });
+              setupBlockPersistence(app, vctx, viewId, inst)
+                .then((d) => {
+                  if (d) ctx.subscriptions.push(d);
+                })
+                // 실패를 삼키지 않는다 — 권한 게이트 throw 가 조용히 증발해
+                // 블록 저장·복원 전체가 죽은 채 발견이 늦었던 실측 결함.
+                .catch((err: unknown) =>
+                  console.error("[terminal] 블록 영속 배선 실패:", err),
+                );
               vctx.setStatus(null);
               vctx.setTitle("Terminal");
             }).catch((err: unknown) => {
