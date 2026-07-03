@@ -15247,7 +15247,9 @@ var plugin_entry_default = {
             );
             createTerminalInstance({
               pty: app.pty,
-              cwd: vctx.root ?? void 0,
+              // 복원 seam(B3): 재시작 복원이면 마지막 관찰 cwd 에서 시작(코어가 OSC 관찰값을
+              // 영속해 restore.cwd 로 전달). 새 뷰·값 없음 = 프로젝트 root(기존 동작).
+              cwd: vctx.restore?.cwd ?? vctx.root ?? void 0,
               shell: shell || void 0,
               // paneId = 이 콘텐츠 뷰의 안정 view.id. 코어가 SOKSAK_PANE 으로 주입하고, 관찰
               // substrate(app.terminal.getCwd/onCwd/onCommandFinished·command.*/turn.ended)를
