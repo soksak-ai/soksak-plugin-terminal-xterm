@@ -15131,12 +15131,21 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
         desc: false,
         limit: RESTORE_N
       });
-      for (const b3 of blocks) {
+      const paintable = blocks.filter((b3) => !!b3.commandLine);
+      let lead = (inst.readBuffer(2) ?? "").trim().length > 0 ? "\r\n" : "";
+      for (let i8 = 0; i8 < paintable.length; i8++) {
+        const b3 = paintable[i8];
         const resumable = b3.sessionId && b3.verified !== false;
         const hint = resumable ? ` \xB7 sok terminal.resume {"session":"${b3.sessionId}"}` : "";
-        const head = `\x1B[2m[\uBCF5\uC6D0\uB428${b3.commandLine ? ` ${b3.commandLine}` : ""}${hint}]\x1B[0m\r
+        const head = `${lead}\x1B[2m[\uBCF5\uC6D0\uB428 ${b3.commandLine}${hint}]\x1B[0m\r
 `;
-        inst.write(head + (b3.output ?? "") + "\r\n");
+        lead = "";
+        if (i8 < paintable.length - 1) {
+          inst.write(head);
+          continue;
+        }
+        const out = (b3.output ?? "").split(/\r?\n/).filter((ln2) => !ln2.includes("[\uBCF5\uC6D0\uB428")).join("\r\n");
+        inst.write(head + out + (out.endsWith("\r\n") || out.length === 0 ? "" : "\r\n"));
       }
     } catch {
     }

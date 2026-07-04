@@ -46,14 +46,36 @@ async function setupBlockPersistence(
         sessionId?: string | null;
         verified?: boolean | null; // [R9] lock 중 저장분(미인증)이면 false → resume affordance 차단
       }>;
-      for (const b of blocks) {
+      // 블록 output 은 turn 종료 시점의 "화면 전체 덤프"(readBuffer)다 — 블록마다 그대로
+      // 그리면 화면이 블록 수만큼 중복 페인트돼 지저분해진다(실측). 그래서:
+      //   · 이전 블록들 = 명령 마커 1줄만(이어가기 힌트 포함) — 컴팩트한 이력.
+      //   · 마지막 블록 = 마커 + 화면 덤프 — 종료 시점 화면 그대로 복원.
+      // 명령 없는 빈 턴(프롬프트만 지나간 turn.ended)은 그리지 않는다(마커 노이즈).
+      const paintable = blocks.filter((b) => !!b.commandLine);
+      // 라이브 프롬프트가 먼저 도착해 커서가 줄 중간이면 첫 마커가 그 줄에 이어붙는다(실측)
+      // — 화면에 이미 내용이 있으면 줄을 끊고 시작한다.
+      let lead = (inst.readBuffer(2) ?? "").trim().length > 0 ? "\r\n" : "";
+      for (let i = 0; i < paintable.length; i++) {
+        const b = paintable[i];
         // [R9] sessionId 가 있고 인증된(verified !== false) claude 블록만 '이어가기' 힌트. lock 중 저장된
         // 위조 가능 블록(verified===false)엔 affordance 를 안 띄운다(위조 history→공격자 resume 차단).
         const resumable = b.sessionId && b.verified !== false;
         const hint = resumable ? ` · sok terminal.resume {"session":"${b.sessionId}"}` : "";
-        // "[복원됨]" dim 마커로 라이브와 구분(R4). output 은 그대로 write(ANSI 보존은 후속 addon-serialize).
-        const head = `\x1b[2m[복원됨${b.commandLine ? ` ${b.commandLine}` : ""}${hint}]\x1b[0m\r\n`;
-        inst.write(head + (b.output ?? "") + "\r\n");
+        // "[복원됨]" dim 마커로 라이브와 구분(R4). ANSI 보존은 후속 addon-serialize.
+        const head = `${lead}\x1b[2m[복원됨 ${b.commandLine}${hint}]\x1b[0m\r\n`;
+        lead = "";
+        if (i < paintable.length - 1) {
+          inst.write(head);
+          continue;
+        }
+        // xterm 은 \r\n 이어야 열이 리셋된다(\n 만 쓰면 계단 — 실측). 그리고 덤프에는 이전
+        // 세대의 "[복원됨 …]" 마커 줄이 찍혀 있어 그대로 그리면 세대를 넘어 증식한다(실측)
+        // — 마커 줄을 걷어내고 그린다(저장 원본은 유지, 판단은 페인트에서만).
+        const out = (b.output ?? "")
+          .split(/\r?\n/)
+          .filter((ln) => !ln.includes("[복원됨")) // 줄 중간 화석(프롬프트+마커 충돌 줄)도 제거
+          .join("\r\n");
+        inst.write(head + out + (out.endsWith("\r\n") || out.length === 0 ? "" : "\r\n"));
       }
     } catch {
       /* 복원 실패(잠김 등)는 라이브 동작 비차단 — unlock 시 재시도 */
