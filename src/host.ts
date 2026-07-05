@@ -37,6 +37,7 @@ export interface PluginCommandSpec {
   triggers?: Record<string, string>;
   params?: Record<string, ParamSpec>;
   returns?: string;
+  message?: (data: any) => string;
   handler: (params: Record<string, unknown>) => Promise<object> | object;
 }
 

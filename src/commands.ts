@@ -27,6 +27,7 @@ export function registerCommands(ctx: PluginContext): void {
       description: "Terminal plugin load/version check (E2E).",
       triggers: { ko: "터미널 핑 적재확인 버전" },
       returns: "{ ok, version }",
+      message: (d) => `터미널 플러그인 ${d.version} 이 적재되어 있습니다.`,
       handler: () => ({ ok: true, version: "0.1.0" }),
     }),
   );
@@ -39,9 +40,10 @@ export function registerCommands(ctx: PluginContext): void {
         text: { type: "string", description: "Text to send to the terminal", required: true },
       },
       returns: "{ ok }",
+      message: () => "터미널에 텍스트를 전송했습니다.",
       handler: (p) => {
         const inst = firstTerminal();
-        if (!inst) return { ok: false, error: "no active terminal" };
+        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         inst.sendInput(String(p.text ?? ""));
         return { ok: true };
       },
@@ -53,9 +55,10 @@ export function registerCommands(ctx: PluginContext): void {
       description: "Clear the active terminal screen.",
       triggers: { ko: "터미널 지우기 클리어" },
       returns: "{ ok }",
+      message: () => "터미널 화면을 지웠습니다.",
       handler: () => {
         const inst = firstTerminal();
-        if (!inst) return { ok: false, error: "no active terminal" };
+        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         inst.clear();
         return { ok: true };
       },
@@ -72,13 +75,14 @@ export function registerCommands(ctx: PluginContext): void {
       triggers: { ko: "세션 이어가기 재개 resume" },
       params: { session: { type: "string", description: "claude sessionId (UUID) to resume", required: true } },
       returns: "{ ok, session }",
+      message: (d) => `세션 ${d.session} 을 이어갑니다.`,
       handler: (p) => {
         const sid = String(p.session ?? "").trim();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) {
-          return { ok: false, error: "invalid sessionId (UUID required)" };
+          return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
         }
         const inst = firstTerminal();
-        if (!inst) return { ok: false, error: "no active terminal" };
+        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         // 셸 프롬프트에 `claude --resume <uuid>` 입력+실행. UUID 라 shell injection 0. claude 만 추적되므로
         // (codex date-dir 후속) claude 고정. 현재 셸 상태(프롬프트 여부)는 사용자 책임 — 명시 호출이므로.
         inst.sendInput(`claude --resume ${sid}\r`);
