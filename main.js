@@ -15056,6 +15056,7 @@ function registerCommands(ctx) {
       description: "Terminal plugin load/version check (E2E).",
       triggers: { ko: "\uD130\uBBF8\uB110 \uD551 \uC801\uC7AC\uD655\uC778 \uBC84\uC804" },
       returns: "{ ok, version }",
+      message: (d2) => `\uD130\uBBF8\uB110 \uD50C\uB7EC\uADF8\uC778 ${d2.version} \uC774 \uC801\uC7AC\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`,
       handler: () => ({ ok: true, version: "0.1.0" })
     })
   );
@@ -15067,9 +15068,10 @@ function registerCommands(ctx) {
         text: { type: "string", description: "Text to send to the terminal", required: true }
       },
       returns: "{ ok }",
+      message: () => "\uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.",
       handler: (p2) => {
         const inst = firstTerminal();
-        if (!inst) return { ok: false, error: "no active terminal" };
+        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         inst.sendInput(String(p2.text ?? ""));
         return { ok: true };
       }
@@ -15080,9 +15082,10 @@ function registerCommands(ctx) {
       description: "Clear the active terminal screen.",
       triggers: { ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30 \uD074\uB9AC\uC5B4" },
       returns: "{ ok }",
+      message: () => "\uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4.",
       handler: () => {
         const inst = firstTerminal();
-        if (!inst) return { ok: false, error: "no active terminal" };
+        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         inst.clear();
         return { ok: true };
       }
@@ -15098,13 +15101,14 @@ function registerCommands(ctx) {
       triggers: { ko: "\uC138\uC158 \uC774\uC5B4\uAC00\uAE30 \uC7AC\uAC1C resume" },
       params: { session: { type: "string", description: "claude sessionId (UUID) to resume", required: true } },
       returns: "{ ok, session }",
+      message: (d2) => `\uC138\uC158 ${d2.session} \uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.`,
       handler: (p2) => {
         const sid = String(p2.session ?? "").trim();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) {
-          return { ok: false, error: "invalid sessionId (UUID required)" };
+          return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
         }
         const inst = firstTerminal();
-        if (!inst) return { ok: false, error: "no active terminal" };
+        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         inst.sendInput(`claude --resume ${sid}\r`);
         return { ok: true, session: sid };
       }
