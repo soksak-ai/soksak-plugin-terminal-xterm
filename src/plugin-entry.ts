@@ -1,7 +1,7 @@
 // soksak terminal 플러그인 엔트리 — loader 가 blob-URL 로 import 하는 단일 ESM(esbuild 번들).
 // 콘텐츠 뷰 "content" 를 등록 → xterm.js 터미널을 마운트, app.pty.* 로 PTY 구동.
 import { injectStyles } from "./styles";
-import { t } from "./i18n";
+import { terminalStartedActivity, terminalFinishedActivity } from "./activity";
 import { createTerminalInstance } from "./terminal";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
 import type { Disposable, PluginApi, PluginContext, PluginViewContext } from "./host";
@@ -182,7 +182,7 @@ export default {
       app.events.on("command.started", (p) => {
         const e = p as { commandLine?: string | null; paneId?: string };
         app.activity.publish("terminal.command.started", {
-          message: `$ ${e.commandLine ?? ""}`.trimEnd(),
+          ...terminalStartedActivity(e.commandLine),
           paneId: e.paneId,
           commandLine: e.commandLine ?? null,
         });
@@ -191,15 +191,9 @@ export default {
     ctx.subscriptions.push(
       app.events.on("command.finished", (p) => {
         const e = p as { exitCode?: number; commandLine?: string | null; paneId?: string };
-        const lang = app.locale();
-        const code = e.exitCode;
         app.activity.publish("terminal.command.finished", {
-          message: `${t("activity.exit", lang)} ${code ?? ""}`.trimEnd(),
-          speak:
-            code == null || code === 0
-              ? t("activity.done.ok", lang)
-              : `${t("activity.done.fail", lang)} ${code}.`,
-          exitCode: code,
+          ...terminalFinishedActivity(e.exitCode, app.locale()),
+          exitCode: e.exitCode,
           commandLine: e.commandLine ?? null,
           paneId: e.paneId,
         });
