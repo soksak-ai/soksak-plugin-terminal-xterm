@@ -347,6 +347,17 @@ function t(key, lang) {
   return dict[key] ?? EN[key] ?? key;
 }
 
+// src/activity.ts
+function terminalStartedActivity(commandLine) {
+  return { message: `$ ${commandLine ?? ""}`.trimEnd() };
+}
+function terminalFinishedActivity(exitCode, lang) {
+  return {
+    message: `${t("activity.exit", lang)} ${exitCode ?? ""}`.trimEnd(),
+    speak: exitCode == null || exitCode === 0 ? t("activity.done.ok", lang) : `${t("activity.done.fail", lang)} ${exitCode}.`
+  };
+}
+
 // node_modules/@xterm/xterm/lib/xterm.mjs
 var zs = Object.defineProperty;
 var Rl = Object.getOwnPropertyDescriptor;
@@ -15249,7 +15260,7 @@ var plugin_entry_default = {
       app.events.on("command.started", (p2) => {
         const e = p2;
         app.activity.publish("terminal.command.started", {
-          message: `$ ${e.commandLine ?? ""}`.trimEnd(),
+          ...terminalStartedActivity(e.commandLine),
           paneId: e.paneId,
           commandLine: e.commandLine ?? null
         });
@@ -15258,12 +15269,9 @@ var plugin_entry_default = {
     ctx.subscriptions.push(
       app.events.on("command.finished", (p2) => {
         const e = p2;
-        const lang = app.locale();
-        const code = e.exitCode;
         app.activity.publish("terminal.command.finished", {
-          message: `${t("activity.exit", lang)} ${code ?? ""}`.trimEnd(),
-          speak: code == null || code === 0 ? t("activity.done.ok", lang) : `${t("activity.done.fail", lang)} ${code}.`,
-          exitCode: code,
+          ...terminalFinishedActivity(e.exitCode, app.locale()),
+          exitCode: e.exitCode,
           commandLine: e.commandLine ?? null,
           paneId: e.paneId
         });
