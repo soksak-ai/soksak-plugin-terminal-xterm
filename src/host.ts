@@ -87,6 +87,13 @@ export interface PluginApi {
   events: {
     on: (event: string, fn: (payload: unknown) => void) => Disposable;
   };
+  // 활동 로그 자기기술 발행 — 터미널 명령 활동을 자기 i18n 문장으로 싣는다(코어 브리지 아님).
+  activity: {
+    publish: (
+      kind: string,
+      entry: { message: string; speak?: string } & Record<string, unknown>,
+    ) => void;
+  };
   // app.data — 코어 영속 저장(records). 터미널이 명령 블록을 저장/복원·retention(R1~R5). "data" 권한 필요.
   data?: {
     define: (collection: string, opts: { indexes?: string[]; fts?: string[] }) => Promise<void>;
