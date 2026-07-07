@@ -15077,9 +15077,9 @@ function registerTerminal(viewId, inst) {
 function unregisterTerminal(viewId) {
   activeTerminals.delete(viewId);
 }
-function firstTerminal() {
-  const iter = activeTerminals.values().next();
-  return iter.done ? null : iter.value;
+function firstEntry() {
+  const iter = activeTerminals.entries().next();
+  return iter.done ? null : { viewId: iter.value[0], inst: iter.value[1] };
 }
 function registerCommands(ctx) {
   const app = ctx.app;
@@ -15101,13 +15101,15 @@ function registerCommands(ctx) {
       params: {
         text: { type: "string", description: "Text to send to the terminal", required: true }
       },
-      returns: "{ ok }",
+      returns: "{ ok, viewId? }",
       message: () => "\uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.",
+      // 전송은 즉시 돌아온다 — 출력은 잠시 후 그 터미널을 core term.read 로 확인한다(pane=이 viewId).
+      hint: (d2) => d2.ok && typeof d2.viewId === "string" ? [{ cmd: `sok term.read '{"pane":"${d2.viewId}"}'`, why: "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uCD9C\uB825\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." }] : [],
       handler: (p2) => {
-        const inst = firstTerminal();
-        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        inst.sendInput(String(p2.text ?? ""));
-        return { ok: true };
+        const entry = firstEntry();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.inst.sendInput(String(p2.text ?? ""));
+        return { ok: true, viewId: entry.viewId };
       }
     })
   );
@@ -15115,13 +15117,13 @@ function registerCommands(ctx) {
     app.commands.register("clear", {
       description: "Clear the active terminal screen.",
       triggers: { ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30 \uD074\uB9AC\uC5B4" },
-      returns: "{ ok }",
+      returns: "{ ok, viewId? }",
       message: () => "\uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4.",
       handler: () => {
-        const inst = firstTerminal();
-        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        inst.clear();
-        return { ok: true };
+        const entry = firstEntry();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.inst.clear();
+        return { ok: true, viewId: entry.viewId };
       }
     })
   );
@@ -15134,17 +15136,19 @@ function registerCommands(ctx) {
       description: "Resume a tracked claude session in the active terminal by its sessionId. User-initiated only; the sessionId must be a valid UUID.",
       triggers: { ko: "\uC138\uC158 \uC774\uC5B4\uAC00\uAE30 \uC7AC\uAC1C resume" },
       params: { session: { type: "string", description: "claude sessionId (UUID) to resume", required: true } },
-      returns: "{ ok, session }",
+      returns: "{ ok, session, viewId? }",
       message: (d2) => `\uC138\uC158 ${d2.session} \uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.`,
+      // 재개 직후 에이전트가 응답을 스트리밍하기 시작한다 — 잠시 후 term.read 로 관찰할 수 있다.
+      hint: (d2) => d2.ok && typeof d2.viewId === "string" ? [{ cmd: `sok term.read '{"pane":"${d2.viewId}"}'`, why: "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uC774\uC5B4\uC9C4 \uC138\uC158\uC758 \uC751\uB2F5\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." }] : [],
       handler: (p2) => {
         const sid = String(p2.session ?? "").trim();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) {
           return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
         }
-        const inst = firstTerminal();
-        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        inst.sendInput(`claude --resume ${sid}\r`);
-        return { ok: true, session: sid };
+        const entry = firstEntry();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.inst.sendInput(`claude --resume ${sid}\r`);
+        return { ok: true, session: sid, viewId: entry.viewId };
       }
     })
   );
