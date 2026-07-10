@@ -146,7 +146,11 @@
         "placements": [
           "content"
         ],
-        "defaultPlacement": "content"
+        "defaultPlacement": "content",
+        "status": [
+          "connecting",
+          "error"
+        ]
       }
     ],
     "commands": [
