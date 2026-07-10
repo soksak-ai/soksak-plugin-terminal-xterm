@@ -181,6 +181,20 @@
           "ko": "세션 이어가기",
           "en": "Resume Session"
         }
+      },
+      {
+        "name": "perf.stats",
+        "title": {
+          "ko": "성능 카운터 읽기",
+          "en": "Read Performance Counters"
+        }
+      },
+      {
+        "name": "perf.echo",
+        "title": {
+          "ko": "입력 에코 왕복 측정",
+          "en": "Measure Input Echo Roundtrip"
+        }
       }
     ],
     "nodes": [

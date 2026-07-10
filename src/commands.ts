@@ -1,6 +1,7 @@
-// terminal.* 명령 — ping / send / clear. 매니페스트 contributes.commands 와 1:1.
+// terminal.* 명령 — ping / send / clear / perf.*. 매니페스트 contributes.commands 와 1:1.
 import type { PluginContext } from "./host";
 import type { TerminalInstance } from "./terminal";
+import type { TermPerfStats } from "./perf";
 
 // 활성 터미널 인스턴스 레지스트리 (viewId → TerminalInstance).
 const activeTerminals = new Map<string, TerminalInstance>();
@@ -15,6 +16,16 @@ export function unregisterTerminal(viewId: string): void {
 function firstTerminal(): TerminalInstance | null {
   const iter = activeTerminals.values().next();
   return iter.done ? null : iter.value;
+}
+
+// view 파라미터가 있으면 그 뷰, 없으면 첫 활성 터미널(viewId 동반).
+function resolveTerminal(view: unknown): { viewId: string; inst: TerminalInstance } | null {
+  if (typeof view === "string" && view) {
+    const inst = activeTerminals.get(view);
+    return inst ? { viewId: view, inst } : null;
+  }
+  const iter = activeTerminals.entries().next();
+  return iter.done ? null : { viewId: iter.value[0], inst: iter.value[1] };
 }
 
 export function registerCommands(ctx: PluginContext): void {
@@ -87,6 +98,58 @@ export function registerCommands(ctx: PluginContext): void {
         // (codex date-dir 후속) claude 고정. 현재 셸 상태(프롬프트 여부)는 사용자 책임 — 명시 호출이므로.
         inst.sendInput(`claude --resume ${sid}\r`);
         return { ok: true, session: sid };
+      },
+    }),
+  );
+
+  sub(
+    app.commands.register("perf.stats", {
+      // 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만(폴링 0).
+      // 하니스는 두 스냅샷의 차분으로 구간(throughput/파싱 백로그/프레임)을 계산한다.
+      description:
+        "Read per-view terminal performance counters: {writtenBytes, ackSent, writeCbLagMs, rafFrameCount, webglActive, scrollbackRows}. Counters accumulate; diff two snapshots to measure an interval.",
+      triggers: { ko: "터미널 성능 카운터 계측 통계" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = all active terminals)" },
+      },
+      returns: "{ ok, views: { [viewId]: stats } }",
+      message: (d) =>
+        `터미널 성능 카운터 ${Object.keys((d.views as object) ?? {}).length}개 뷰를 읽었습니다.`,
+      handler: (p) => {
+        const views: Record<string, TermPerfStats> = {};
+        if (typeof p.view === "string" && p.view) {
+          const inst = activeTerminals.get(p.view);
+          if (!inst) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p.view}` };
+          views[p.view] = inst.perfStats();
+        } else {
+          for (const [viewId, inst] of activeTerminals) views[viewId] = inst.perfStats();
+        }
+        return { ok: true, views };
+      },
+    }),
+  );
+
+  sub(
+    app.commands.register("perf.echo", {
+      // t2-L1 입력 레이턴시 프로브: PTY 에 무해 입력(" "+DEL)을 쓰고 다음 출력(onData) 도착까지의
+      // 왕복(ms). 측정점 = 플러그인 write→PTY→에코 수신 — 소켓 RPC·페인트는 포함하지 않는다.
+      description:
+        "Measure one input→echo roundtrip (ms): write a harmless probe to the PTY and time the next output arrival. Excludes socket RPC and paint. Run at a quiet shell prompt.",
+      triggers: { ko: "터미널 에코 왕복 레이턴시 프로브" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = first active terminal)" },
+      },
+      returns: "{ ok, viewId, roundtripMs }",
+      message: (d) => `입력→에코 왕복 ${d.roundtripMs}ms (${d.viewId}).`,
+      handler: async (p) => {
+        const entry = resolveTerminal(p.view);
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        try {
+          const roundtripMs = await entry.inst.echoProbe();
+          return { ok: true, viewId: entry.viewId, roundtripMs };
+        } catch (err) {
+          return { ok: false, code: "TIMEOUT", message: String(err) };
+        }
       },
     }),
   );

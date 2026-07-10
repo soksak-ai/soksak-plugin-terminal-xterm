@@ -8,6 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 import { WebkitImeAddon } from "./vendor/xterm-addon-webkit-ime";
 import { themeFor } from "./theme";
+import { createPerfCounters, type TermPerfStats } from "./perf";
 import type { PtyApi, Disposable } from "./host";
 
 // VSCode FlowControlConstants.CharCountAckSize 와 동일.
@@ -96,6 +97,11 @@ export interface TerminalInstance {
    *  컨트롤)는 계속 보내 PTY 가 막히지 않는다(backend drain 지속). vault lock 중 사용, unlock 시 false. */
   setScreenSuspended(suspended: boolean): void;
   applySettings(s: TermSettings): void;
+  /** 성능 카운터 스냅샷(pull) — perf.stats 커맨드가 읽는다. 가산은 onData/ACK/write 콜백/onRender 경로. */
+  perfStats(): TermPerfStats;
+  /** 입력→에코 왕복(ms) 측정: PTY 에 무해 프로브(" "+DEL)를 쓰고 다음 onData 도착까지 잰다.
+   *  t2-L1 측정점 — 페인트는 포함하지 않는다(페인트 포함 축은 perf.stats 의 writeCbLagMs/rafFrameCount). */
+  echoProbe(): Promise<number>;
 }
 
 /**
@@ -370,14 +376,26 @@ export async function createTerminal(
   let suspendedBuf = "";
   const SUSPEND_BUF_CAP = 256 * 1024;
   const suspendDecoder = new TextDecoder();
+  // [perf] 뷰별 카운터 — onData/ACK/write 콜백에서 정수 가산만(폴링 0, 오버헤드 ~0).
+  const perf = createPerfCounters();
+  // onRender = xterm 이 실제 그린 프레임(rAF 틱과 1:1) — 렌더 루프를 새로 돌리지 않는다.
+  term.onRender(() => perf.frame());
+  // [perf] echo 프로브 대기열 — echoProbe() 가 등록하고 다음 onData 도착이 해소한다(이벤트 정공).
+  const echoPending: Array<{ t0: number; settle: (ms: number) => void }> = [];
   const wireOutput = () => {
     dataSub = pty.onData(termId, (bytes: Uint8Array) => {
+      perf.addBytes(bytes.length);
+      if (echoPending.length > 0) {
+        const now = performance.now();
+        for (const e of echoPending.splice(0)) e.settle(now - e.t0);
+      }
       // ACK(플로우 컨트롤) — 화면 페인트 여부와 무관하게 누적 후 5k 마다 보낸다(PTY drain 지속).
       const doAck = () => {
         ackPending += bytes.length;
         if (ackPending >= FLOW_ACK_SIZE && termId !== 0) {
           pty.ack(termId, ackPending).catch(() => {});
           ackPending = 0;
+          perf.ackSent();
         }
       };
       if (screenSuspended) {
@@ -389,7 +407,12 @@ export async function createTerminal(
         doAck();
         return;
       }
-      term.write(bytes, doAck);
+      // write 콜백 지연 = xterm 파싱 백로그 지표(t2-L2 축). 콜백에서 가산 후 ACK.
+      const t0 = performance.now();
+      term.write(bytes, () => {
+        perf.addWriteCbLag(performance.now() - t0);
+        doAck();
+      });
     });
   };
 
@@ -422,6 +445,8 @@ export async function createTerminal(
       clear: () => {},
       setScreenSuspended: () => {},
       applySettings: () => {},
+      perfStats: () => perf.snapshot({ webglActive: false, scrollbackRows: 0 }),
+      echoProbe: () => Promise.reject(new Error("terminal disposed")),
     };
   }
 
@@ -597,6 +622,34 @@ export async function createTerminal(
     },
     write: (data: string) => term.write(data), // 화면 직접(PTY 우회 — 복원 inert)
     clear: () => term.clear(),
+    perfStats: () =>
+      perf.snapshot({
+        webglActive: webgl !== undefined,
+        // 일반 버퍼 총 행수 - 뷰포트 행수 = 스크롤백 행수(하한 0).
+        scrollbackRows: Math.max(0, term.buffer.normal.length - term.rows),
+      }),
+    echoProbe: () =>
+      new Promise<number>((resolve, reject) => {
+        if (termId === 0) {
+          reject(new Error("PTY not ready"));
+          return;
+        }
+        const entry = {
+          t0: performance.now(),
+          settle: (ms: number) => {
+            clearTimeout(timer);
+            resolve(ms);
+          },
+        };
+        const timer = window.setTimeout(() => {
+          const i = echoPending.indexOf(entry);
+          if (i >= 0) echoPending.splice(i, 1);
+          reject(new Error("echo timeout (2s)"));
+        }, 2000);
+        echoPending.push(entry);
+        // 무해 프로브: 스페이스+DEL — 셸 라인버퍼 순변화 0, 에코(출력)는 발생한다.
+        writeToPty(" \x7f");
+      }),
     setScreenSuspended: (s: boolean) => {
       screenSuspended = s;
       if (!s) suspendedBuf = ""; // 재개 시 누적 비움 — unlock hydrate 가 sealed 기록으로 복원한다.
