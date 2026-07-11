@@ -74,6 +74,11 @@ export interface PtyApi {
   close(id: number): Promise<void>;
   /** PTY 출력 구독(스폰 전 출력도 버퍼링 → 손실 없음). 반환=해지. */
   onData(id: number, cb: (data: Uint8Array) => void): Disposable;
+  /** 이 pane 의 스폰이 PTY 세션 화면을 복원했는가(데몬 재부착 replay | cold 체크포인트 inject).
+   *  코어가 spawn 반환 전 set 하므로 spawn 을 await 한 뒤 조회하면 레이스-프리다. 참이면 그
+   *  화면이 뷰포트 권위 — 복원 뷰는 명령-블록 repaint(이력 floor)를 겹치면 복원 프레임을
+   *  뷰포트 밖으로 민다. */
+  wasScreenRestored(paneId: string): boolean;
   /** 셸 바이너리 경로 확인. 없으면 null. */
   which(bin: string): Promise<string | null>;
   /** 이 paneId 의 IO 핸들러(화면 읽기·입력 쓰기)를 코어 substrate 에 등록 → app.terminal.

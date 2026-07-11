@@ -82,7 +82,19 @@ async function setupBlockPersistence(
       /* 복원 실패(잠김 등)는 라이브 동작 비차단 — unlock 시 재시도 */
     }
   };
-  await hydrate(); // mount 시 1회(평문이거나 이미 unlock 이면 즉시 복원)
+  // [복원 소유권 계약] PTY 세션이 화면을 복원했으면(데몬 재부착 replay | cold 체크포인트
+  // inject) 그 화면이 뷰포트 권위다: 재부착·cold 프레임은 최근 이력을 이미 화면으로 담고,
+  // 그 위로 명령-블록 repaint(마커 + 마지막-블록 화면덤프)를 그리면 복원 프레임과 소실 고지가
+  // 뷰포트 밖(스크롤백)으로 밀려 사용자가 못 본다(실측 — cold 재오픈 시 100줄+ 위로). 렌더
+  // 순서는 고정이라(cold paint 가 spawn 중 먼저, hydrate 는 그 아래) 마커를 남기면 이력이
+  // 클수록 프레임을 뷰포트 밖으로 민다 → 복원된 pane 에선 mount repaint 를 생략한다. 억제되는
+  // 건 "화면 그리기"뿐이다: 저장(turn.ended→put)은 계속되어 command_blocks 모델은 app.data 에
+  // 그대로 쌓이고, 다음 신선 open 이 마커·이어가기 힌트를 다시 그린다. 복원 pane 에서 잃는 건
+  // 인라인 resume 힌트뿐이며(terminal.resume 커맨드는 유지), warm 은 세션이 살아 있어 resume 이
+  // 불필요하다. 신호는 코어가 spawn 반환 전 set 한다(app.pty.wasScreenRestored) — 반환 후
+  // 조회라 레이스-프리. 복원이 없었을 때만(신선 터미널·잠긴 볼트로 cold 차단) floor 로 그린다.
+  const screenRestored = app.pty?.wasScreenRestored?.(viewId) ?? false;
+  if (!screenRestored) await hydrate(); // mount 시 1회(복원 안 됐을 때만 — 평문/unlock 즉시 복원)
 
   // [R9] vault lock 동안 저장된 블록은 미인증(발신자 인증 없는 공개키 봉인 — 위조 가능) → verified=false.
   // 이어가기 affordance 를 그런 블록엔 안 띄운다. lock/unlock 이벤트로 갱신(아래 onLocked/onUnlocked).

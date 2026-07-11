@@ -15318,7 +15318,8 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
     } catch {
     }
   };
-  await hydrate();
+  const screenRestored = app.pty?.wasScreenRestored?.(viewId) ?? false;
+  if (!screenRestored) await hydrate();
   let locked = false;
   let startTs = Date.now();
   let startPid = null;
