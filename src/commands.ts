@@ -1,7 +1,6 @@
-// terminal.* 명령 — ping / send / clear / perf.*. 매니페스트 contributes.commands 와 1:1.
+// terminal.* 명령 — ping / send / clear. 매니페스트 contributes.commands 와 1:1.
 import type { PluginContext } from "./host";
 import type { TerminalInstance } from "./terminal";
-import type { TermPerfStats } from "./perf";
 
 // 활성 터미널 인스턴스 레지스트리 (viewId → TerminalInstance).
 const activeTerminals = new Map<string, TerminalInstance>();
@@ -13,19 +12,20 @@ export function unregisterTerminal(viewId: string): void {
   activeTerminals.delete(viewId);
 }
 
-function firstTerminal(): TerminalInstance | null {
-  const iter = activeTerminals.values().next();
-  return iter.done ? null : iter.value;
+function firstEntry(): { viewId: string; inst: TerminalInstance } | null {
+  const iter = activeTerminals.entries().next();
+  return iter.done ? null : { viewId: iter.value[0], inst: iter.value[1] };
 }
 
-// view 파라미터가 있으면 그 뷰, 없으면 첫 활성 터미널(viewId 동반).
-function resolveTerminal(view: unknown): { viewId: string; inst: TerminalInstance } | null {
+// 지정 view(있으면) 또는 첫 활성 터미널을 해소. perf.echo 처럼 단일 대상 타깃팅에 쓴다.
+function resolveTerminal(
+  view: unknown,
+): { viewId: string; inst: TerminalInstance } | null {
   if (typeof view === "string" && view) {
     const inst = activeTerminals.get(view);
     return inst ? { viewId: view, inst } : null;
   }
-  const iter = activeTerminals.entries().next();
-  return iter.done ? null : { viewId: iter.value[0], inst: iter.value[1] };
+  return firstEntry();
 }
 
 export function registerCommands(ctx: PluginContext): void {
@@ -50,13 +50,18 @@ export function registerCommands(ctx: PluginContext): void {
       params: {
         text: { type: "string", description: "Text to send to the terminal", required: true },
       },
-      returns: "{ ok }",
+      returns: "{ ok, viewId? }",
       message: () => "터미널에 텍스트를 전송했습니다.",
+      // 전송은 즉시 돌아온다 — 출력은 잠시 후 그 터미널을 core term.read 로 확인한다(pane=이 viewId).
+      hint: (d) =>
+        d.ok && typeof d.viewId === "string"
+          ? [{ cmd: `sok term.read '{"pane":"${d.viewId}"}'`, why: "잠시 후 이 터미널을 읽어 출력을 확인할 수 있습니다." }]
+          : [],
       handler: (p) => {
-        const inst = firstTerminal();
-        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        inst.sendInput(String(p.text ?? ""));
-        return { ok: true };
+        const entry = firstEntry();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.inst.sendInput(String(p.text ?? ""));
+        return { ok: true, viewId: entry.viewId };
       },
     }),
   );
@@ -65,13 +70,13 @@ export function registerCommands(ctx: PluginContext): void {
     app.commands.register("clear", {
       description: "Clear the active terminal screen.",
       triggers: { ko: "터미널 지우기 클리어" },
-      returns: "{ ok }",
+      returns: "{ ok, viewId? }",
       message: () => "터미널 화면을 지웠습니다.",
       handler: () => {
-        const inst = firstTerminal();
-        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        inst.clear();
-        return { ok: true };
+        const entry = firstEntry();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.inst.clear();
+        return { ok: true, viewId: entry.viewId };
       },
     }),
   );
@@ -85,26 +90,31 @@ export function registerCommands(ctx: PluginContext): void {
       description: "Resume a tracked claude session in the active terminal by its sessionId. User-initiated only; the sessionId must be a valid UUID.",
       triggers: { ko: "세션 이어가기 재개 resume" },
       params: { session: { type: "string", description: "claude sessionId (UUID) to resume", required: true } },
-      returns: "{ ok, session }",
+      returns: "{ ok, session, viewId? }",
       message: (d) => `세션 ${d.session} 을 이어갑니다.`,
+      // 재개 직후 에이전트가 응답을 스트리밍하기 시작한다 — 잠시 후 term.read 로 관찰할 수 있다.
+      hint: (d) =>
+        d.ok && typeof d.viewId === "string"
+          ? [{ cmd: `sok term.read '{"pane":"${d.viewId}"}'`, why: "잠시 후 이 터미널을 읽어 이어진 세션의 응답을 확인할 수 있습니다." }]
+          : [],
       handler: (p) => {
         const sid = String(p.session ?? "").trim();
         if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) {
           return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
         }
-        const inst = firstTerminal();
-        if (!inst) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        const entry = firstEntry();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         // 셸 프롬프트에 `claude --resume <uuid>` 입력+실행. UUID 라 shell injection 0. claude 만 추적되므로
         // (codex date-dir 후속) claude 고정. 현재 셸 상태(프롬프트 여부)는 사용자 책임 — 명시 호출이므로.
-        inst.sendInput(`claude --resume ${sid}\r`);
-        return { ok: true, session: sid };
+        entry.inst.sendInput(`claude --resume ${sid}\r`);
+        return { ok: true, session: sid, viewId: entry.viewId };
       },
     }),
   );
 
   sub(
     app.commands.register("perf.stats", {
-      // 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만(폴링 0).
+      // 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만 한다(폴링 0).
       // 하니스는 두 스냅샷의 차분으로 구간(throughput/파싱 백로그/프레임)을 계산한다.
       description:
         "Read per-view terminal performance counters: {writtenBytes, ackSent, writeCbLagMs, rafFrameCount, webglActive, scrollbackRows}. Counters accumulate; diff two snapshots to measure an interval.",
@@ -113,10 +123,9 @@ export function registerCommands(ctx: PluginContext): void {
         view: { type: "string", description: "Target view id (omit = all active terminals)" },
       },
       returns: "{ ok, views: { [viewId]: stats } }",
-      message: (d) =>
-        `터미널 성능 카운터 ${Object.keys((d.views as object) ?? {}).length}개 뷰를 읽었습니다.`,
+      message: (d) => `터미널 성능 카운터 ${Object.keys(d.views ?? {}).length}개 뷰를 읽었습니다.`,
       handler: (p) => {
-        const views: Record<string, TermPerfStats> = {};
+        const views: Record<string, unknown> = {};
         if (typeof p.view === "string" && p.view) {
           const inst = activeTerminals.get(p.view);
           if (!inst) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p.view}` };

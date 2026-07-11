@@ -1,19 +1,19 @@
-// 뷰별 성능 카운터 — PTY→화면 경로의 정수 가산만(오버헤드 ~0, 폴링 0).
-// terminal.ts 의 onData/ACK/write 콜백/onRender 에서 가산하고, perf.stats 커맨드가
-// pull 로 읽는다. 소비자(하니스)는 두 스냅샷의 차분으로 구간을 계산한다.
+// 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만 한다(폴링 0,
+// 측정 대상 무교란). perf.stats 하니스는 두 스냅샷의 차분으로 구간(throughput/파싱 백로그/프레임)을
+// 계산한다. writeCbLagMs/rafFrameCount 는 페인트 포함 축, writtenBytes/ackSent 는 처리량 축이다.
 
-export interface TermPerfStats {
-  /** PTY 출력으로 수신해 화면 경로(term.write)로 넘긴 총 바이트. */
+export interface PerfSnapshot {
+  /** onData 로 도착한 누적 바이트(처리량 분자). */
   writtenBytes: number;
-  /** 플로우 컨트롤 ACK 전송 횟수(누적 5000B 마다 1회). */
+  /** 보낸 ACK(플로우 컨트롤) 횟수 — FLOW_ACK_SIZE 마다 1. */
   ackSent: number;
-  /** term.write 호출 → 완료 콜백까지의 누적 지연(ms, 정수 반올림) — 파싱 백로그 지표. */
+  /** term.write 콜백까지의 누적 지연(ms, 반올림) — xterm 파싱 백로그. */
   writeCbLagMs: number;
-  /** xterm 렌더 프레임 수(onRender — 실제 그린 프레임만). */
+  /** onRender 프레임 수 — 실제 재페인트 횟수. */
   rafFrameCount: number;
-  /** WebGL 렌더러 활성 여부(폴백/전환 감지). */
+  /** 스냅샷 시점 라이브 값(카운터 아님) — WebGL 렌더러 활성 여부. */
   webglActive: boolean;
-  /** 일반 버퍼의 스크롤백 행 수(뷰포트 제외). */
+  /** 스냅샷 시점 라이브 값 — 일반 버퍼 스크롤백 행수. */
   scrollbackRows: number;
 }
 
@@ -22,7 +22,7 @@ export interface PerfCounters {
   ackSent(): void;
   addWriteCbLag(ms: number): void;
   frame(): void;
-  snapshot(live: { webglActive: boolean; scrollbackRows: number }): TermPerfStats;
+  snapshot(live: { webglActive: boolean; scrollbackRows: number }): PerfSnapshot;
 }
 
 export function createPerfCounters(): PerfCounters {

@@ -82,7 +82,19 @@ async function setupBlockPersistence(
       /* 복원 실패(잠김 등)는 라이브 동작 비차단 — unlock 시 재시도 */
     }
   };
-  await hydrate(); // mount 시 1회(평문이거나 이미 unlock 이면 즉시 복원)
+  // [복원 소유권 계약] PTY 세션이 화면을 복원했으면(데몬 재부착 replay | cold 체크포인트
+  // inject) 그 화면이 뷰포트 권위다: 재부착·cold 프레임은 최근 이력을 이미 화면으로 담고,
+  // 그 위로 명령-블록 repaint(마커 + 마지막-블록 화면덤프)를 그리면 복원 프레임과 소실 고지가
+  // 뷰포트 밖(스크롤백)으로 밀려 사용자가 못 본다(실측 — cold 재오픈 시 100줄+ 위로). 렌더
+  // 순서는 고정이라(cold paint 가 spawn 중 먼저, hydrate 는 그 아래) 마커를 남기면 이력이
+  // 클수록 프레임을 뷰포트 밖으로 민다 → 복원된 pane 에선 mount repaint 를 생략한다. 억제되는
+  // 건 "화면 그리기"뿐이다: 저장(turn.ended→put)은 계속되어 command_blocks 모델은 app.data 에
+  // 그대로 쌓이고, 다음 신선 open 이 마커·이어가기 힌트를 다시 그린다. 복원 pane 에서 잃는 건
+  // 인라인 resume 힌트뿐이며(terminal.resume 커맨드는 유지), warm 은 세션이 살아 있어 resume 이
+  // 불필요하다. 신호는 코어가 spawn 반환 전 set 한다(app.pty.wasScreenRestored) — 반환 후
+  // 조회라 레이스-프리. 복원이 없었을 때만(신선 터미널·잠긴 볼트로 cold 차단) floor 로 그린다.
+  const screenRestored = app.pty?.wasScreenRestored?.(viewId) ?? false;
+  if (!screenRestored) await hydrate(); // mount 시 1회(복원 안 됐을 때만 — 평문/unlock 즉시 복원)
 
   // [R9] vault lock 동안 저장된 블록은 미인증(발신자 인증 없는 공개키 봉인 — 위조 가능) → verified=false.
   // 이어가기 affordance 를 그런 블록엔 안 띄운다. lock/unlock 이벤트로 갱신(아래 onLocked/onUnlocked).
@@ -201,6 +213,13 @@ export default {
     );
 
     if (app.ui?.registerView) {
+      const focusStates = new WeakMap<
+        HTMLElement,
+        {
+          instance: TerminalInstance | null;
+          pending: { signal: AbortSignal } | null;
+        }
+      >();
       ctx.subscriptions.push(
         app.ui.registerView("content", {
           mount(container: HTMLElement, vctx: PluginViewContext) {
@@ -226,6 +245,11 @@ export default {
 
             let disposed = false;
             let termInst: import("./terminal").TerminalInstance | null = null;
+            const focusState = {
+              instance: null as TerminalInstance | null,
+              pending: null as { signal: AbortSignal } | null,
+            };
+            focusStates.set(container, focusState);
             // 코어 substrate 에 등록한 IO 핸들(있으면 dispose 에서 해지). app.terminal.readBuffer/
             // sendText 가 이 viewId(=paneId)로 이 터미널의 버퍼 읽기·입력 쓰기에 닿게 한다.
             let ioReg: import("./host").Disposable | null = null;
@@ -274,9 +298,18 @@ export default {
                 return;
               }
               termInst = inst;
+              focusState.instance = inst;
               // inst.element 에 data-node 가 이미 설정됨 (terminal.ts)
               wrap.appendChild(inst.element);
-              inst.focus();
+              const pendingFocus = focusState.pending;
+              focusState.pending = null;
+              if (
+                pendingFocus &&
+                !pendingFocus.signal.aborted &&
+                !container.contains(document.activeElement)
+              ) {
+                inst.focus();
+              }
               registerTerminal(viewId, inst);
               // app.terminal.readBuffer/sendText 가 이 터미널에 닿도록 IO 핸들 등록(키=viewId=paneId).
               ioReg = app.pty?.registerIo?.(viewId, {
@@ -305,6 +338,8 @@ export default {
             // termInst 를 직접 참조해 PTY 세션을 닫는다(레지스트리 경유 없음).
             (wrap as unknown as Record<string, unknown>).__skTermDispose = async () => {
               disposed = true;
+              focusState.instance = null;
+              focusState.pending = null;
               unSettings?.dispose();
               ioReg?.dispose(); // substrate IO 핸들 해지(누수 0)
               ioReg = null;
@@ -317,6 +352,24 @@ export default {
             (container as unknown as Record<string, unknown>).__skTermWrap = wrap;
           },
 
+          prepareFocusTransfer(container) {
+            focusStates.get(container)?.instance?.prepareFocusTransfer();
+          },
+
+          focus(container, _vctx, request) {
+            const state = focusStates.get(container);
+            if (!state || request.signal.aborted) return;
+            state.pending = request;
+            if (
+              !state.instance ||
+              container.contains(document.activeElement)
+            ) {
+              return;
+            }
+            state.pending = null;
+            state.instance.focus();
+          },
+
           unmount(container: HTMLElement) {
             const wrap = (container as unknown as Record<string, unknown>).__skTermWrap as HTMLElement | undefined;
             if (wrap) {
@@ -325,6 +378,7 @@ export default {
               container.replaceChildren();
               delete (container as unknown as Record<string, unknown>).__skTermWrap;
             }
+            focusStates.delete(container);
           },
         }),
       );

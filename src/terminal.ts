@@ -8,7 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 import { WebkitImeAddon } from "./vendor/xterm-addon-webkit-ime";
 import { themeFor } from "./theme";
-import { createPerfCounters, type TermPerfStats } from "./perf";
+import { createPerfCounters, type PerfSnapshot } from "./perf";
 import type { PtyApi, Disposable } from "./host";
 
 // VSCode FlowControlConstants.CharCountAckSize 와 동일.
@@ -86,6 +86,8 @@ export interface TerminalInstance {
   element: HTMLElement;
   dispose(): Promise<void>;
   focus(): void;
+  /** Commit any transient IME state before another view receives focus. */
+  prepareFocusTransfer(): void;
   fit(): void;
   sendInput(data: string): void;
   paste(text: string): void;
@@ -97,10 +99,11 @@ export interface TerminalInstance {
    *  컨트롤)는 계속 보내 PTY 가 막히지 않는다(backend drain 지속). vault lock 중 사용, unlock 시 false. */
   setScreenSuspended(suspended: boolean): void;
   applySettings(s: TermSettings): void;
-  /** 성능 카운터 스냅샷(pull) — perf.stats 커맨드가 읽는다. 가산은 onData/ACK/write 콜백/onRender 경로. */
-  perfStats(): TermPerfStats;
-  /** 입력→에코 왕복(ms) 측정: PTY 에 무해 프로브(" "+DEL)를 쓰고 다음 onData 도착까지 잰다.
-   *  t2-L1 측정점 — 페인트는 포함하지 않는다(페인트 포함 축은 perf.stats 의 writeCbLagMs/rafFrameCount). */
+  /** 성능 카운터 스냅샷(pull) — onData/ACK/write 콜백/onRender 누적 + 라이브 webglActive/scrollbackRows.
+   *  perf.stats 명령이 노출한다. 두 스냅샷 차분으로 구간을 잰다(폴링 0). */
+  perfStats(): PerfSnapshot;
+  /** 입력→에코 왕복(ms) 1회 프로브: PTY 에 무해 입력(" "+DEL)을 write 하고 다음 onData 도착까지 잰다.
+   *  소켓 RPC·페인트는 제외한다(측정점 = 플러그인 write→PTY 에코→onData). perf.echo 명령이 노출한다. */
   echoProbe(): Promise<number>;
 }
 
@@ -376,15 +379,15 @@ export async function createTerminal(
   let suspendedBuf = "";
   const SUSPEND_BUF_CAP = 256 * 1024;
   const suspendDecoder = new TextDecoder();
-  // [perf] 뷰별 카운터 — onData/ACK/write 콜백에서 정수 가산만(폴링 0, 오버헤드 ~0).
+  // 성능 카운터(pull) — onData/ACK/write 콜백/onRender 에서 정수 가산만(폴링 0, 측정 대상 무교란).
   const perf = createPerfCounters();
-  // onRender = xterm 이 실제 그린 프레임(rAF 틱과 1:1) — 렌더 루프를 새로 돌리지 않는다.
   term.onRender(() => perf.frame());
-  // [perf] echo 프로브 대기열 — echoProbe() 가 등록하고 다음 onData 도착이 해소한다(이벤트 정공).
+  // echoProbe 대기 큐 — 프로브가 push 한 엔트리를 다음 onData 도착이 왕복ms 로 해소한다.
   const echoPending: Array<{ t0: number; settle: (ms: number) => void }> = [];
   const wireOutput = () => {
     dataSub = pty.onData(termId, (bytes: Uint8Array) => {
       perf.addBytes(bytes.length);
+      // echoProbe 대기분 해소 — 무해 프로브를 write 한 뒤 첫 출력 도착이 왕복ms(소켓·페인트 제외)다.
       if (echoPending.length > 0) {
         const now = performance.now();
         for (const e of echoPending.splice(0)) e.settle(now - e.t0);
@@ -407,7 +410,7 @@ export async function createTerminal(
         doAck();
         return;
       }
-      // write 콜백 지연 = xterm 파싱 백로그 지표(t2-L2 축). 콜백에서 가산 후 ACK.
+      // write 콜백까지의 지연 = xterm 파싱 백로그(페인트 포함 축). t0 은 write 직전.
       const t0 = performance.now();
       term.write(bytes, () => {
         perf.addWriteCbLag(performance.now() - t0);
@@ -437,6 +440,7 @@ export async function createTerminal(
       element: container,
       dispose: async () => {},
       focus: () => {},
+      prepareFocusTransfer: () => {},
       fit: () => {},
       sendInput: () => {},
       paste: () => {},
@@ -602,6 +606,7 @@ export async function createTerminal(
     // 포커스/노출/이동(appendChild) 직후 호출되는 경로 — 지금 맞춰야 한다.
     fit: () => doResize(true),
     focus: () => term.focus(),
+    prepareFocusTransfer: () => ime.prepareFocusTransfer(),
     paste: (text: string) => term.paste(text),
     sendInput: (data: string) => writeToPty(data),
     readBuffer: (lines?: number) => {
@@ -647,7 +652,8 @@ export async function createTerminal(
           reject(new Error("echo timeout (2s)"));
         }, 2000);
         echoPending.push(entry);
-        // 무해 프로브: 스페이스+DEL — 셸 라인버퍼 순변화 0, 에코(출력)는 발생한다.
+        // 무해 프로브: 스페이스 + DEL(백스페이스) — 셸 라인버퍼에 순변화 0. 셸/TUI 가 에코를
+        // 돌려보내면 위 wireOutput 의 onData 가 entry.settle 로 왕복ms 를 해소한다.
         writeToPty(" \x7f");
       }),
     setScreenSuspended: (s: boolean) => {

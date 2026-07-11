@@ -136,6 +136,7 @@ function isHangulJamo(text: string): boolean {
 
 export class WebkitImeAddon implements ITerminalAddon {
   private _term?: ITerminalLike;
+  private _textarea?: HTMLTextAreaElement;
   private _preedit?: HTMLDivElement;
   private _onRender?: IDisposable;
   private _removers: Array<() => void> = [];
@@ -152,6 +153,11 @@ export class WebkitImeAddon implements ITerminalAddon {
   // True only while _flush() runs inside _onKeydown, so the flush knows it must
   // arm GUARD 3 (a standard-path flush from _onInput must not).
   private _flushingFromKeydown = false;
+  // Standard composition is still owned by xterm. We only observe its latest
+  // value so a core focus-transfer request can synchronously drive xterm's own
+  // compositionend path before WebKit blurs the textarea (#164369).
+  private _standardComposing = false;
+  private _standardPending = "";
 
   constructor(private readonly _opts: WebkitImeAddonOptions) {}
 
@@ -159,6 +165,7 @@ export class WebkitImeAddon implements ITerminalAddon {
     const ta = terminal.textarea;
     if (!ta) return;
     this._term = terminal;
+    this._textarea = ta;
 
     const preedit = document.createElement("div");
     preedit.style.position = "absolute";
@@ -177,9 +184,12 @@ export class WebkitImeAddon implements ITerminalAddon {
       this._removers.push(() => ta.removeEventListener(type, fn, true));
     };
 
-    // NOTE: we do NOT touch compositionstart/update/end — leaving them lets
-    // WebKit keep its marked-text state on the STANDARD path that xterm handles.
-    // We only intercept the non-standard input variants.
+    // Observe standard composition without preventing or rewriting it. xterm
+    // remains the sole input owner; these listeners only retain commit data for
+    // the explicit focus-transfer boundary.
+    add("compositionstart", this._onCompositionStart);
+    add("compositionupdate", this._onCompositionUpdate);
+    add("compositionend", this._onCompositionEnd);
     add("input", this._onInput as (e: Event) => void);
     add("keydown", this._onKeydown as (e: Event) => void);
     // GUARD 2: beforeinput arrives before the xterm textarea poll onData, so it
@@ -201,6 +211,7 @@ export class WebkitImeAddon implements ITerminalAddon {
     this._onRender = undefined;
     this._preedit?.remove();
     this._preedit = undefined;
+    this._textarea = undefined;
     // Release the custom key handler so it doesn't leak into another addon.
     this._term?.attachCustomKeyEventHandler(() => true);
     this._composing = false;
@@ -208,6 +219,8 @@ export class WebkitImeAddon implements ITerminalAddon {
     this._expectEcho = "";
     this._justFlushed = "";
     this._flushingFromKeydown = false;
+    this._standardComposing = false;
+    this._standardPending = "";
   }
 
   /** Call from terminal.onData — true if the data is leaked jamo to drop. */
@@ -253,6 +266,46 @@ export class WebkitImeAddon implements ITerminalAddon {
   public flushPending(): void {
     this._flush();
   }
+
+  /**
+   * Finish transient IME state before core transfers focus to another view.
+   * This method is synchronous and idempotent: non-standard input uses the
+   * addon's existing PTY flush, while standard input travels through xterm's
+   * existing compositionend handler exactly once.
+   */
+  public prepareFocusTransfer(): void {
+    if (this._pending !== "") {
+      this._flush();
+      return;
+    }
+    const textarea = this._textarea;
+    const data = this._standardPending;
+    if (!textarea || !this._standardComposing || !data) return;
+
+    // Clear first so the synthetic event and any repeated transfer request are
+    // reentrant-safe. xterm's listener was installed before this addon and owns
+    // the actual onData commit.
+    this._standardComposing = false;
+    this._standardPending = "";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { data, bubbles: true }),
+    );
+  }
+
+  private _onCompositionStart = (): void => {
+    this._standardComposing = true;
+    this._standardPending = "";
+  };
+
+  private _onCompositionUpdate = (event: Event): void => {
+    if (!this._standardComposing) return;
+    this._standardPending = (event as CompositionEvent).data ?? "";
+  };
+
+  private _onCompositionEnd = (): void => {
+    this._standardComposing = false;
+    this._standardPending = "";
+  };
 
   private _customKey = (ev: KeyboardEvent): boolean => {
     if (ev.type === "keydown" && (ev.keyCode === 229 || ev.isComposing)) {
@@ -435,6 +488,8 @@ export class WebkitImeAddon implements ITerminalAddon {
 
     // NON-STANDARD: composition update (ㅎ -> 하 -> 한). Intercept + preview.
     if (e.data && e.inputType === "insertReplacementText") {
+      this._standardComposing = false;
+      this._standardPending = "";
       this._composing = true;
       this._pending = e.data;
       this._show(e.data);
@@ -445,6 +500,8 @@ export class WebkitImeAddon implements ITerminalAddon {
 
     // NON-STANDARD: Hangul insertText starts a new composition.
     if (e.data && e.inputType === "insertText" && isHangul(e.data)) {
+      this._standardComposing = false;
+      this._standardPending = "";
       if (this._composing) this._flush();
       this._composing = true;
       this._pending = e.data;
