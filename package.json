@@ -1,5 +1,5 @@
 {
-  "name": "soksak-plugin-terminal",
+  "name": "soksak-plugin-terminal-xterm",
   "private": true,
   "version": "0.0.1",
   "type": "module",

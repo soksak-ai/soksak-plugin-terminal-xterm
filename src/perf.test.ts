@@ -49,7 +49,7 @@ function fakeCtx() {
   >();
   const ctx = {
     app: {
-      pluginId: "soksak-plugin-terminal",
+      pluginId: "soksak-plugin-terminal-xterm",
       locale: () => "ko",
       commands: {
         register: (name: string, spec: { handler: (p: Record<string, unknown>) => Promise<object> | object }) => {

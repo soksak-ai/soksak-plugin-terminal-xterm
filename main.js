@@ -14809,7 +14809,7 @@ async function createTerminal(options) {
   term.loadAddon(new j2());
   const container = document.createElement("div");
   container.className = "sk-term-xterm";
-  container.setAttribute("data-node", "terminal");
+  container.setAttribute("data-node", "terminal-xterm");
   container.style.cssText = "width:100%;height:100%;overflow:hidden;";
   term.open(container);
   let webgl;

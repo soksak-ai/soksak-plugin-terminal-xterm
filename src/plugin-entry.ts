@@ -227,7 +227,7 @@ export default {
             container.style.position = "relative";
             container.style.overflow = "hidden";
 
-            // 래퍼 div — data-node="terminal" + 100% fill
+            // 래퍼 div — data-node="terminal-xterm" + 100% fill
             const wrap = document.createElement("div");
             wrap.className = "sk-term-wrap";
             wrap.style.cssText = "position:absolute;inset:0;";

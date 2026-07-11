@@ -1,4 +1,4 @@
-// soksak-plugin-terminal 번들 빌드 — esbuild 단일 ESM main.js.
+// soksak-plugin-terminal-xterm 번들 빌드 — esbuild 단일 ESM main.js.
 // xterm CSS 는 loader:text 로 문자열 import → styles.ts 에서 style 태그로 주입.
 import { build, context } from "esbuild";
 import path from "node:path";
@@ -30,8 +30,8 @@ const opts = {
 if (process.argv.includes("--watch")) {
   const ctx = await context(opts);
   await ctx.watch();
-  console.log("[terminal] watching src → main.js …");
+  console.log("[terminal-xterm] watching src → main.js …");
 } else {
   await build(opts);
-  console.log("[terminal] built main.js");
+  console.log("[terminal-xterm] built main.js");
 }

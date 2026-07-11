@@ -1,17 +1,20 @@
 {
   "spec": "soksak-spec-plugin@0.0.1",
-  "id": "soksak-plugin-terminal",
+  "id": "soksak-plugin-terminal-xterm",
   "name": {
     "ko": "터미널",
     "en": "Terminal"
   },
   "version": "0.0.1",
-  "repo": "https://github.com/soksak-ai/soksak-plugin-terminal.git",
+  "repo": "https://github.com/soksak-ai/soksak-plugin-terminal-xterm.git",
   "description": {
     "ko": "xterm.js 터미널 패널 — 코어 PTY 를 직접 구동.",
     "en": "xterm.js terminal pane driven by core PTY."
   },
   "entry": "main.js",
+  "implements": [
+    "terminal-spec@1"
+  ],
   "permissions": [
     "ui",
     "commands",
@@ -126,7 +129,7 @@
   "contributes": {
     "programs": [
       {
-        "id": "terminal",
+        "id": "terminal-xterm",
         "title": {
           "ko": "터미널",
           "en": "Terminal"
@@ -199,7 +202,7 @@
     ],
     "nodes": [
       {
-        "id": "terminal",
+        "id": "terminal-xterm",
         "description": {
           "ko": "xterm.js 터미널 컨테이너",
           "en": "xterm.js terminal container"

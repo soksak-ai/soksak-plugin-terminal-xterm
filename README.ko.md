@@ -1,4 +1,4 @@
-# soksak-plugin-terminal
+# soksak-plugin-terminal-xterm
 
 운영체제 PTY로 동작하는 soksak 터미널 플러그인. [xterm.js](https://xtermjs.org/) 터미널을
 콘텐츠 탭으로 열고, 새 탭(+) 메뉴에 **터미널** 항목을 추가한다.
@@ -11,7 +11,7 @@ xterm.js로 터미널을 렌더링하고 설정을 제공한다.
 새 탭(+) 메뉴의 **터미널**, 또는:
 
 ```bash
-sok view.open '{"program":"terminal"}'
+sok view.open '{"program":"terminal-xterm"}'
 ```
 
 ## 설정
@@ -32,7 +32,7 @@ sok view.open '{"program":"terminal"}'
 - 코어 `term.exec` / `term.read` / `term.cwd` — view id로 어느 터미널이든 조작
 
 ```bash
-sok plugin.soksak-plugin-terminal.send '{"text":"echo hi\r"}'
+sok plugin.soksak-plugin-terminal-xterm.send '{"text":"echo hi\r"}'
 ```
 
 ## 권한
@@ -44,5 +44,5 @@ sok plugin.soksak-plugin-terminal.send '{"text":"echo hi\r"}'
 | `programs` | + 메뉴 항목 |
 | `pty` | PTY 구동(`app.pty.*`) |
 
-다른 플러그인은 `view` 프로그램을 이 터미널로 지정해(`viewPlugin: "soksak-plugin-terminal"`
+다른 플러그인은 `view` 프로그램을 이 터미널로 지정해(`viewPlugin: "soksak-plugin-terminal-xterm"`
 + `command`) 명령을 실행할 수 있다 — 에이전트 플러그인(`claude`, `codex`)이 이 방식이다.
