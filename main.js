@@ -14692,6 +14692,38 @@ function themeFor(mode = currentMode()) {
   return { ...base, background: bg };
 }
 
+// src/perf.ts
+function createPerfCounters() {
+  let writtenBytes = 0;
+  let acks = 0;
+  let writeCbLagMs = 0;
+  let frames = 0;
+  return {
+    addBytes(n2) {
+      writtenBytes += n2;
+    },
+    ackSent() {
+      acks += 1;
+    },
+    addWriteCbLag(ms3) {
+      writeCbLagMs += ms3;
+    },
+    frame() {
+      frames += 1;
+    },
+    snapshot(live) {
+      return {
+        writtenBytes,
+        ackSent: acks,
+        writeCbLagMs: Math.round(writeCbLagMs),
+        rafFrameCount: frames,
+        webglActive: live.webglActive,
+        scrollbackRows: live.scrollbackRows
+      };
+    }
+  };
+}
+
 // src/terminal.ts
 var FLOW_ACK_SIZE = 5e3;
 async function createTerminal(options) {
@@ -14860,14 +14892,23 @@ async function createTerminal(options) {
   let suspendedBuf = "";
   const SUSPEND_BUF_CAP = 256 * 1024;
   const suspendDecoder = new TextDecoder();
+  const perf = createPerfCounters();
+  term.onRender(() => perf.frame());
+  const echoPending = [];
   const wireOutput = () => {
     dataSub = pty.onData(termId, (bytes) => {
+      perf.addBytes(bytes.length);
+      if (echoPending.length > 0) {
+        const now = performance.now();
+        for (const e of echoPending.splice(0)) e.settle(now - e.t0);
+      }
       const doAck = () => {
         ackPending += bytes.length;
         if (ackPending >= FLOW_ACK_SIZE && termId !== 0) {
           pty.ack(termId, ackPending).catch(() => {
           });
           ackPending = 0;
+          perf.ackSent();
         }
       };
       if (screenSuspended) {
@@ -14878,7 +14919,11 @@ async function createTerminal(options) {
         doAck();
         return;
       }
-      term.write(bytes, doAck);
+      const t0 = performance.now();
+      term.write(bytes, () => {
+        perf.addWriteCbLag(performance.now() - t0);
+        doAck();
+      });
     });
   };
   termId = await pty.spawn({
@@ -14916,7 +14961,9 @@ async function createTerminal(options) {
       setScreenSuspended: () => {
       },
       applySettings: () => {
-      }
+      },
+      perfStats: () => perf.snapshot({ webglActive: false, scrollbackRows: 0 }),
+      echoProbe: () => Promise.reject(new Error("terminal disposed"))
     };
   }
   wireOutput();
@@ -15039,6 +15086,31 @@ async function createTerminal(options) {
     write: (data) => term.write(data),
     // 화면 직접(PTY 우회 — 복원 inert)
     clear: () => term.clear(),
+    perfStats: () => perf.snapshot({
+      webglActive: webgl !== void 0,
+      // 일반 버퍼 총 행수 - 뷰포트 행수 = 스크롤백 행수(하한 0).
+      scrollbackRows: Math.max(0, term.buffer.normal.length - term.rows)
+    }),
+    echoProbe: () => new Promise((resolve, reject) => {
+      if (termId === 0) {
+        reject(new Error("PTY not ready"));
+        return;
+      }
+      const entry = {
+        t0: performance.now(),
+        settle: (ms3) => {
+          clearTimeout(timer);
+          resolve(ms3);
+        }
+      };
+      const timer = window.setTimeout(() => {
+        const i8 = echoPending.indexOf(entry);
+        if (i8 >= 0) echoPending.splice(i8, 1);
+        reject(new Error("echo timeout (2s)"));
+      }, 2e3);
+      echoPending.push(entry);
+      writeToPty(" \x7F");
+    }),
     setScreenSuspended: (s16) => {
       screenSuspended = s16;
       if (!s16) suspendedBuf = "";
@@ -15080,6 +15152,13 @@ function unregisterTerminal(viewId) {
 function firstEntry() {
   const iter = activeTerminals.entries().next();
   return iter.done ? null : { viewId: iter.value[0], inst: iter.value[1] };
+}
+function resolveTerminal(view) {
+  if (typeof view === "string" && view) {
+    const inst = activeTerminals.get(view);
+    return inst ? { viewId: view, inst } : null;
+  }
+  return firstEntry();
 }
 function registerCommands(ctx) {
   const app = ctx.app;
@@ -15149,6 +15228,53 @@ function registerCommands(ctx) {
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.inst.sendInput(`claude --resume ${sid}\r`);
         return { ok: true, session: sid, viewId: entry.viewId };
+      }
+    })
+  );
+  sub(
+    app.commands.register("perf.stats", {
+      // 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만 한다(폴링 0).
+      // 하니스는 두 스냅샷의 차분으로 구간(throughput/파싱 백로그/프레임)을 계산한다.
+      description: "Read per-view terminal performance counters: {writtenBytes, ackSent, writeCbLagMs, rafFrameCount, webglActive, scrollbackRows}. Counters accumulate; diff two snapshots to measure an interval.",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uC131\uB2A5 \uCE74\uC6B4\uD130 \uACC4\uCE21 \uD1B5\uACC4" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = all active terminals)" }
+      },
+      returns: "{ ok, views: { [viewId]: stats } }",
+      message: (d2) => `\uD130\uBBF8\uB110 \uC131\uB2A5 \uCE74\uC6B4\uD130 ${Object.keys(d2.views ?? {}).length}\uAC1C \uBDF0\uB97C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4.`,
+      handler: (p2) => {
+        const views = {};
+        if (typeof p2.view === "string" && p2.view) {
+          const inst = activeTerminals.get(p2.view);
+          if (!inst) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p2.view}` };
+          views[p2.view] = inst.perfStats();
+        } else {
+          for (const [viewId, inst] of activeTerminals) views[viewId] = inst.perfStats();
+        }
+        return { ok: true, views };
+      }
+    })
+  );
+  sub(
+    app.commands.register("perf.echo", {
+      // t2-L1 입력 레이턴시 프로브: PTY 에 무해 입력(" "+DEL)을 쓰고 다음 출력(onData) 도착까지의
+      // 왕복(ms). 측정점 = 플러그인 write→PTY→에코 수신 — 소켓 RPC·페인트는 포함하지 않는다.
+      description: "Measure one input\u2192echo roundtrip (ms): write a harmless probe to the PTY and time the next output arrival. Excludes socket RPC and paint. Run at a quiet shell prompt.",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uC5D0\uCF54 \uC655\uBCF5 \uB808\uC774\uD134\uC2DC \uD504\uB85C\uBE0C" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = first active terminal)" }
+      },
+      returns: "{ ok, viewId, roundtripMs }",
+      message: (d2) => `\uC785\uB825\u2192\uC5D0\uCF54 \uC655\uBCF5 ${d2.roundtripMs}ms (${d2.viewId}).`,
+      handler: async (p2) => {
+        const entry = resolveTerminal(p2.view);
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        try {
+          const roundtripMs = await entry.inst.echoProbe();
+          return { ok: true, viewId: entry.viewId, roundtripMs };
+        } catch (err) {
+          return { ok: false, code: "TIMEOUT", message: String(err) };
+        }
       }
     })
   );

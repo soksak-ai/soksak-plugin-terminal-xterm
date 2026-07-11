@@ -8,6 +8,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 import { WebkitImeAddon } from "./vendor/xterm-addon-webkit-ime";
 import { themeFor } from "./theme";
+import { createPerfCounters, type PerfSnapshot } from "./perf";
 import type { PtyApi, Disposable } from "./host";
 
 // VSCode FlowControlConstants.CharCountAckSize 와 동일.
@@ -96,6 +97,12 @@ export interface TerminalInstance {
    *  컨트롤)는 계속 보내 PTY 가 막히지 않는다(backend drain 지속). vault lock 중 사용, unlock 시 false. */
   setScreenSuspended(suspended: boolean): void;
   applySettings(s: TermSettings): void;
+  /** 성능 카운터 스냅샷(pull) — onData/ACK/write 콜백/onRender 누적 + 라이브 webglActive/scrollbackRows.
+   *  perf.stats 명령이 노출한다. 두 스냅샷 차분으로 구간을 잰다(폴링 0). */
+  perfStats(): PerfSnapshot;
+  /** 입력→에코 왕복(ms) 1회 프로브: PTY 에 무해 입력(" "+DEL)을 write 하고 다음 onData 도착까지 잰다.
+   *  소켓 RPC·페인트는 제외한다(측정점 = 플러그인 write→PTY 에코→onData). perf.echo 명령이 노출한다. */
+  echoProbe(): Promise<number>;
 }
 
 /**
@@ -370,14 +377,26 @@ export async function createTerminal(
   let suspendedBuf = "";
   const SUSPEND_BUF_CAP = 256 * 1024;
   const suspendDecoder = new TextDecoder();
+  // 성능 카운터(pull) — onData/ACK/write 콜백/onRender 에서 정수 가산만(폴링 0, 측정 대상 무교란).
+  const perf = createPerfCounters();
+  term.onRender(() => perf.frame());
+  // echoProbe 대기 큐 — 프로브가 push 한 엔트리를 다음 onData 도착이 왕복ms 로 해소한다.
+  const echoPending: Array<{ t0: number; settle: (ms: number) => void }> = [];
   const wireOutput = () => {
     dataSub = pty.onData(termId, (bytes: Uint8Array) => {
+      perf.addBytes(bytes.length);
+      // echoProbe 대기분 해소 — 무해 프로브를 write 한 뒤 첫 출력 도착이 왕복ms(소켓·페인트 제외)다.
+      if (echoPending.length > 0) {
+        const now = performance.now();
+        for (const e of echoPending.splice(0)) e.settle(now - e.t0);
+      }
       // ACK(플로우 컨트롤) — 화면 페인트 여부와 무관하게 누적 후 5k 마다 보낸다(PTY drain 지속).
       const doAck = () => {
         ackPending += bytes.length;
         if (ackPending >= FLOW_ACK_SIZE && termId !== 0) {
           pty.ack(termId, ackPending).catch(() => {});
           ackPending = 0;
+          perf.ackSent();
         }
       };
       if (screenSuspended) {
@@ -389,7 +408,12 @@ export async function createTerminal(
         doAck();
         return;
       }
-      term.write(bytes, doAck);
+      // write 콜백까지의 지연 = xterm 파싱 백로그(페인트 포함 축). t0 은 write 직전.
+      const t0 = performance.now();
+      term.write(bytes, () => {
+        perf.addWriteCbLag(performance.now() - t0);
+        doAck();
+      });
     });
   };
 
@@ -422,6 +446,8 @@ export async function createTerminal(
       clear: () => {},
       setScreenSuspended: () => {},
       applySettings: () => {},
+      perfStats: () => perf.snapshot({ webglActive: false, scrollbackRows: 0 }),
+      echoProbe: () => Promise.reject(new Error("terminal disposed")),
     };
   }
 
@@ -597,6 +623,35 @@ export async function createTerminal(
     },
     write: (data: string) => term.write(data), // 화면 직접(PTY 우회 — 복원 inert)
     clear: () => term.clear(),
+    perfStats: () =>
+      perf.snapshot({
+        webglActive: webgl !== undefined,
+        // 일반 버퍼 총 행수 - 뷰포트 행수 = 스크롤백 행수(하한 0).
+        scrollbackRows: Math.max(0, term.buffer.normal.length - term.rows),
+      }),
+    echoProbe: () =>
+      new Promise<number>((resolve, reject) => {
+        if (termId === 0) {
+          reject(new Error("PTY not ready"));
+          return;
+        }
+        const entry = {
+          t0: performance.now(),
+          settle: (ms: number) => {
+            clearTimeout(timer);
+            resolve(ms);
+          },
+        };
+        const timer = window.setTimeout(() => {
+          const i = echoPending.indexOf(entry);
+          if (i >= 0) echoPending.splice(i, 1);
+          reject(new Error("echo timeout (2s)"));
+        }, 2000);
+        echoPending.push(entry);
+        // 무해 프로브: 스페이스 + DEL(백스페이스) — 셸 라인버퍼에 순변화 0. 셸/TUI 가 에코를
+        // 돌려보내면 위 wireOutput 의 onData 가 entry.settle 로 왕복ms 를 해소한다.
+        writeToPty(" \x7f");
+      }),
     setScreenSuspended: (s: boolean) => {
       screenSuspended = s;
       if (!s) suspendedBuf = ""; // 재개 시 누적 비움 — unlock hydrate 가 sealed 기록으로 복원한다.
