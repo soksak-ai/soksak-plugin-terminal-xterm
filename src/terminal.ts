@@ -86,6 +86,8 @@ export interface TerminalInstance {
   element: HTMLElement;
   dispose(): Promise<void>;
   focus(): void;
+  /** Commit any transient IME state before another view receives focus. */
+  prepareFocusTransfer(): void;
   fit(): void;
   sendInput(data: string): void;
   paste(text: string): void;
@@ -438,6 +440,7 @@ export async function createTerminal(
       element: container,
       dispose: async () => {},
       focus: () => {},
+      prepareFocusTransfer: () => {},
       fit: () => {},
       sendInput: () => {},
       paste: () => {},
@@ -603,6 +606,7 @@ export async function createTerminal(
     // 포커스/노출/이동(appendChild) 직후 호출되는 경로 — 지금 맞춰야 한다.
     fit: () => doResize(true),
     focus: () => term.focus(),
+    prepareFocusTransfer: () => ime.prepareFocusTransfer(),
     paste: (text: string) => term.paste(text),
     sendInput: (data: string) => writeToPty(data),
     readBuffer: (lines?: number) => {

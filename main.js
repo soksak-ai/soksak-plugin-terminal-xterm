@@ -14386,6 +14386,7 @@ var WebkitImeAddon = class {
     this._opts = _opts;
   }
   _term;
+  _textarea;
   _preedit;
   _onRender;
   _removers = [];
@@ -14402,10 +14403,16 @@ var WebkitImeAddon = class {
   // True only while _flush() runs inside _onKeydown, so the flush knows it must
   // arm GUARD 3 (a standard-path flush from _onInput must not).
   _flushingFromKeydown = false;
+  // Standard composition is still owned by xterm. We only observe its latest
+  // value so a core focus-transfer request can synchronously drive xterm's own
+  // compositionend path before WebKit blurs the textarea (#164369).
+  _standardComposing = false;
+  _standardPending = "";
   activate(terminal) {
     const ta2 = terminal.textarea;
     if (!ta2) return;
     this._term = terminal;
+    this._textarea = ta2;
     const preedit = document.createElement("div");
     preedit.style.position = "absolute";
     preedit.style.pointerEvents = "none";
@@ -14421,6 +14428,9 @@ var WebkitImeAddon = class {
       ta2.addEventListener(type, fn3, true);
       this._removers.push(() => ta2.removeEventListener(type, fn3, true));
     };
+    add("compositionstart", this._onCompositionStart);
+    add("compositionupdate", this._onCompositionUpdate);
+    add("compositionend", this._onCompositionEnd);
     add("input", this._onInput);
     add("keydown", this._onKeydown);
     add("beforeinput", this._onBeforeinput);
@@ -14436,12 +14446,15 @@ var WebkitImeAddon = class {
     this._onRender = void 0;
     this._preedit?.remove();
     this._preedit = void 0;
+    this._textarea = void 0;
     this._term?.attachCustomKeyEventHandler(() => true);
     this._composing = false;
     this._pending = "";
     this._expectEcho = "";
     this._justFlushed = "";
     this._flushingFromKeydown = false;
+    this._standardComposing = false;
+    this._standardPending = "";
   }
   /** Call from terminal.onData — true if the data is leaked jamo to drop. */
   shouldSkip(data) {
@@ -14468,6 +14481,38 @@ var WebkitImeAddon = class {
   flushPending() {
     this._flush();
   }
+  /**
+   * Finish transient IME state before core transfers focus to another view.
+   * This method is synchronous and idempotent: non-standard input uses the
+   * addon's existing PTY flush, while standard input travels through xterm's
+   * existing compositionend handler exactly once.
+   */
+  prepareFocusTransfer() {
+    if (this._pending !== "") {
+      this._flush();
+      return;
+    }
+    const textarea = this._textarea;
+    const data = this._standardPending;
+    if (!textarea || !this._standardComposing || !data) return;
+    this._standardComposing = false;
+    this._standardPending = "";
+    textarea.dispatchEvent(
+      new CompositionEvent("compositionend", { data, bubbles: true })
+    );
+  }
+  _onCompositionStart = () => {
+    this._standardComposing = true;
+    this._standardPending = "";
+  };
+  _onCompositionUpdate = (event) => {
+    if (!this._standardComposing) return;
+    this._standardPending = event.data ?? "";
+  };
+  _onCompositionEnd = () => {
+    this._standardComposing = false;
+    this._standardPending = "";
+  };
   _customKey = (ev) => {
     if (ev.type === "keydown" && (ev.keyCode === 229 || ev.isComposing)) {
       return false;
@@ -14549,6 +14594,8 @@ var WebkitImeAddon = class {
     }
     if (this._justFlushed) this._justFlushed = "";
     if (e.data && e.inputType === "insertReplacementText") {
+      this._standardComposing = false;
+      this._standardPending = "";
       this._composing = true;
       this._pending = e.data;
       this._show(e.data);
@@ -14557,6 +14604,8 @@ var WebkitImeAddon = class {
       return;
     }
     if (e.data && e.inputType === "insertText" && isHangul(e.data)) {
+      this._standardComposing = false;
+      this._standardPending = "";
       if (this._composing) this._flush();
       this._composing = true;
       this._pending = e.data;
@@ -14947,6 +14996,8 @@ async function createTerminal(options) {
       },
       focus: () => {
       },
+      prepareFocusTransfer: () => {
+      },
       fit: () => {
       },
       sendInput: () => {
@@ -15069,6 +15120,7 @@ async function createTerminal(options) {
     // 포커스/노출/이동(appendChild) 직후 호출되는 경로 — 지금 맞춰야 한다.
     fit: () => doResize(true),
     focus: () => term.focus(),
+    prepareFocusTransfer: () => ime.prepareFocusTransfer(),
     paste: (text) => term.paste(text),
     sendInput: (data) => writeToPty(data),
     readBuffer: (lines) => {
@@ -15409,6 +15461,7 @@ var plugin_entry_default = {
       })
     );
     if (app.ui?.registerView) {
+      const focusStates = /* @__PURE__ */ new WeakMap();
       ctx.subscriptions.push(
         app.ui.registerView("content", {
           mount(container, vctx) {
@@ -15427,6 +15480,11 @@ var plugin_entry_default = {
             }
             let disposed = false;
             let termInst = null;
+            const focusState = {
+              instance: null,
+              pending: null
+            };
+            focusStates.set(container, focusState);
             let ioReg = null;
             const readSettings = () => {
               const all = app.settings?.all?.() ?? {};
@@ -15465,8 +15523,13 @@ var plugin_entry_default = {
                 return;
               }
               termInst = inst;
+              focusState.instance = inst;
               wrap.appendChild(inst.element);
-              inst.focus();
+              const pendingFocus = focusState.pending;
+              focusState.pending = null;
+              if (pendingFocus && !pendingFocus.signal.aborted && !container.contains(document.activeElement)) {
+                inst.focus();
+              }
               registerTerminal(viewId, inst);
               ioReg = app.pty?.registerIo?.(viewId, {
                 readBuffer: (lines) => inst.readBuffer(lines),
@@ -15486,6 +15549,8 @@ var plugin_entry_default = {
             });
             wrap.__skTermDispose = async () => {
               disposed = true;
+              focusState.instance = null;
+              focusState.pending = null;
               unSettings?.dispose();
               ioReg?.dispose();
               ioReg = null;
@@ -15498,6 +15563,19 @@ var plugin_entry_default = {
             };
             container.__skTermWrap = wrap;
           },
+          prepareFocusTransfer(container) {
+            focusStates.get(container)?.instance?.prepareFocusTransfer();
+          },
+          focus(container, _vctx, request) {
+            const state = focusStates.get(container);
+            if (!state || request.signal.aborted) return;
+            state.pending = request;
+            if (!state.instance || container.contains(document.activeElement)) {
+              return;
+            }
+            state.pending = null;
+            state.instance.focus();
+          },
           unmount(container) {
             const wrap = container.__skTermWrap;
             if (wrap) {
@@ -15507,6 +15585,7 @@ var plugin_entry_default = {
               container.replaceChildren();
               delete container.__skTermWrap;
             }
+            focusStates.delete(container);
           }
         })
       );
