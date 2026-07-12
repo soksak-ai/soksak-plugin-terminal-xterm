@@ -8,6 +8,7 @@ const paintB64 = (s: string) => btoa(s);
 interface Stubs {
   rehydrate?: () => unknown; // throw = sidecar down; return reply envelope
   sealed?: unknown | null | (() => never);
+  paneAlive?: boolean; // 데몬에 라이브 세션 존재(warm 후보). 기본 false = 신선/cold.
 }
 
 function fakeApp(stubs: Stubs) {
@@ -37,6 +38,7 @@ function fakeApp(stubs: Stubs) {
         if (typeof stubs.sealed === "function") return (stubs.sealed as () => never)();
         return (stubs.sealed ?? null) as { paintB64: string; altActive: boolean } | null;
       },
+      paneAlive: async () => stubs.paneAlive ?? false,
     },
   } as unknown as PluginApi;
   return { app, published, spawned };
@@ -56,6 +58,7 @@ function exhaustRetry(): () => void {
 describe("orchestrateRestore", () => {
   it("warm: rehydrate paints inert and attaches from uptoSeq", async () => {
     const { app } = fakeApp({
+      paneAlive: true, // 데몬에 라이브 세션 = warm 후보 → rehydrate 를 탄다
       rehydrate: () => ({
         ok: true,
         code: "OK",
@@ -84,17 +87,36 @@ describe("orchestrateRestore", () => {
   });
 
   it("fresh: no mirror and no blob → replay none, floor draws", async () => {
-    const { app } = fakeApp({ sealed: null });
+    const { app } = fakeApp({ sealed: null }); // paneAlive 기본 false = 신선
     const out = await orchestrateRestore(app, "v1", () => {});
     expect(out.replay).toBe("none"); // 스폰은 항상 명시(코어 폴백 없음)
     expect(out.painted).toBe(false); // floor 가 이력 바닥을 깐다
   });
 
+  it("fresh (no live daemon session): never waits on the sidecar rehydrate", async () => {
+    // ① 핵심 회귀 방지 — 신선 첫 open 은 데몬에 세션이 없으니(paneAlive=false) 사이드카가 떠 있든
+    // 아니든 rehydrate 를 아예 안 부른다. 부팅 직후 사이드카가 데몬에 붙는 중이어도 스폰이 안 밀린다.
+    let rehydrateCalls = 0;
+    const { app } = fakeApp({
+      paneAlive: false,
+      rehydrate: () => {
+        rehydrateCalls++;
+        throw new Error("sidecar still connecting"); // 있어도 안 물어봐야 한다
+      },
+    });
+    const out = await orchestrateRestore(app, "v1", () => {});
+    expect(rehydrateCalls).toBe(0); // 사이드카 대기 0 — 즉시 스폰
+    expect(out.replay).toBe("none");
+    expect(out.painted).toBe(false);
+  });
+
   it("warm boot-race: retries rehydrate until the sidecar comes up, then attaches", async () => {
-    // 부팅 직후 사이드카 소켓이 아직 없어 connect 가 거부되다가(2회) 뜨면(3회) 성공. 즉시 degraded
-    // 로 떨어지지 않고 유계 재시도로 warm 에 수렴해야 한다(이력 복원 유실 방지).
+    // ②③ 데몬에 라이브 세션 존재(warm 후보) + 사이드카가 늦음 — 부팅 직후 사이드카 소켓이 아직
+    // 없어 connect 가 거부되다가(2회) 뜨면(3회) 성공. 즉시 degraded 로 안 떨어지고 유계 재시도로
+    // warm 에 수렴해야 한다(이력 복원 유실 방지).
     let calls = 0;
     const { app } = fakeApp({
+      paneAlive: true, // warm 후보 → 재시도가 가치 있다
       rehydrate: () => {
         calls++;
         if (calls < 3) throw new Error("no terminal sidecar"); // 스폰 중 — 소켓 미도달
@@ -112,6 +134,7 @@ describe("orchestrateRestore", () => {
   it("degraded: a dead sidecar is retried to the bound, then announced and falls to the seal path", async () => {
     let calls = 0;
     const { app, published, spawned } = fakeApp({
+      paneAlive: true, // 라이브 세션인데 사이드카가 미러를 못 준다 → 재시도 후 봉인 폴백
       rehydrate: () => {
         calls++;
         throw new Error("no terminal sidecar");
@@ -133,6 +156,7 @@ describe("orchestrateRestore", () => {
   it("degraded with no blob → retried to the bound, then loud degraded-fresh notice", async () => {
     let calls = 0;
     const { app, published } = fakeApp({
+      paneAlive: true, // 라이브 세션인데 사이드카 미러 없음 + 봉인도 없음 → 재시도 후 degraded-fresh
       rehydrate: () => {
         calls++;
         throw new Error("down");
