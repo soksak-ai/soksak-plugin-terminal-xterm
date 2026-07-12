@@ -225,6 +225,12 @@ export async function createTerminal(
   // 파킹된 터미널은 적용을 미뤘다가 **보일 때(IntersectionObserver) 한 번** 적용한다(O(전체)→O(보이는)).
   let lastThemeJson = JSON.stringify(options.theme ?? themeFor()); // 생성 시 적용분 기록(초기 중복 적용 방지)
   let pendingTheme: ITheme | null = null; // 파킹 중 미룬 테마(보일 때 적용)
+  // [복원 렌더 플러시 불변식] 복원 페인트(rehydrate/cold)는 컨테이너가 DOM 에 붙기 전(detached,
+  // 0크기)에 term.write 된다 — 버퍼는 갱신되나 렌더러 초기 패스가 유실되고 이후 쓰기가 없어
+  // 픽셀이 백지로 남는다(실측: 텍스트 단언 GREEN·화면 백지). 가시화 전이(IntersectionObserver,
+  // 폴링 0)에서 아틀라스를 비우고 전체 리프레시로 버퍼를 픽셀로 강제한다 — "복원 페인트는 렌더
+  // 플러시로 끝난다".
+  let restorePaintPending = false;
   // 사용자에게 실제 보이나 — 파킹은 offsetParent non-null이라 computed visibility 가 정확한 신호.
   const isVisible = (): boolean => {
     const el = term.element;
@@ -265,10 +271,21 @@ export async function createTerminal(
   // resize 가 안 떠서, 가시성 전이는 IntersectionObserver 로 잡는다(폴링 0).
   const visObserver = new IntersectionObserver((entries) => {
     for (const e of entries) {
-      if (e.isIntersecting && pendingTheme) {
+      if (!e.isIntersecting) continue;
+      if (pendingTheme) {
         const t = pendingTheme;
         pendingTheme = null;
         applyThemeNow(t);
+      }
+      // 복원 페인트가 detached 중 쓰였다면, 붙어서 보이는 지금 렌더로 플러시한다(1회).
+      if (restorePaintPending) {
+        restorePaintPending = false;
+        try {
+          webgl?.clearTextureAtlas();
+          term.refresh(0, term.rows - 1);
+        } catch {
+          /* 렌더러 미준비 등 — 다음 write 가 그린다 */
+        }
       }
     }
   });
@@ -438,6 +455,9 @@ export async function createTerminal(
     replay = outcome.replay;
     restorePainted = outcome.painted;
     deferToCoreRestore = outcome.deferToCoreRestore ?? false;
+    // 소비자가 detached 중 그린 복원 페인트는 가시화 시 렌더 플러시가 필요하다(위 불변식).
+    // 코어 소유 복원(deferToCoreRestore)은 데몬 스트림이 attach 후 라이브로 그리므로 불요.
+    if (outcome.painted) restorePaintPending = true;
   }
 
   // windowLabel 은 코어 substrate 가 내부에서 채운다 — 플러그인은 자기 창 label 을 알 필요가

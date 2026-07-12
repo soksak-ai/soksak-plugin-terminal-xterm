@@ -14922,6 +14922,7 @@ async function createTerminal(options) {
   setRenderer(s15?.xtermRenderer ?? "webgl");
   let lastThemeJson = JSON.stringify(options.theme ?? themeFor());
   let pendingTheme = null;
+  let restorePaintPending = false;
   const isVisible = () => {
     const el2 = term.element;
     if (!el2) return false;
@@ -14953,10 +14954,19 @@ async function createTerminal(options) {
   });
   const visObserver = new IntersectionObserver((entries) => {
     for (const e of entries) {
-      if (e.isIntersecting && pendingTheme) {
+      if (!e.isIntersecting) continue;
+      if (pendingTheme) {
         const t2 = pendingTheme;
         pendingTheme = null;
         applyThemeNow(t2);
+      }
+      if (restorePaintPending) {
+        restorePaintPending = false;
+        try {
+          webgl?.clearTextureAtlas();
+          term.refresh(0, term.rows - 1);
+        } catch {
+        }
       }
     }
   });
@@ -15069,6 +15079,7 @@ async function createTerminal(options) {
     replay = outcome.replay;
     restorePainted = outcome.painted;
     deferToCoreRestore = outcome.deferToCoreRestore ?? false;
+    if (outcome.painted) restorePaintPending = true;
   }
   termId = await pty.spawn({
     cols: term.cols,
