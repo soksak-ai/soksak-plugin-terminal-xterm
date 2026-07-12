@@ -108,6 +108,9 @@ export interface PtyApi {
 // app.process — 외부 서브프로세스 spawn("process" 권한). 여기선 생존 서비스 사이드카를
 // detached 로 스폰하는 데만 쓴다(cmd "sidecar:{name}", danger 게이트는 코어).
 export interface ProcessApi {
+  /** 매니페스트 sidecars[] 에서 이 계약을 구현한다고 선언한 유닛 이름 — 유닛 선택의 단일진실.
+   *  번들에 유닛명을 상수로 굳히지 않기 위한 면이다(매니페스트만 바꿔도 유닛이 바뀐다). */
+  sidecarName: (interfaceId: string) => string;
   spawn(
     cmd: string,
     args: string[],
