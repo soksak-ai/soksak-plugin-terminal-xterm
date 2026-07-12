@@ -296,7 +296,7 @@ var PLUGIN_CSS = `
   height: 100%;
   overflow: hidden;
   /* \uADF8\uB9AC\uB4DC \uC794\uC5EC(\uC6B0/\uD558\uB2E8) \uBC30\uACBD = \uC571 \uD14C\uB9C8 --bg. xterm theme.background \uC640 \uB3D9\uC77C \uAC12\uC73C\uB85C
-     \uB9DE\uCDB0\uC57C \uD55C\uB2E4(\uCF54\uC5B4 terminal/theme.ts \uADDC\uCE59). \uBBF8\uC124\uC815 \uC2DC \uB2E4\uD06C \uD3F4\uBC31. */
+     \uB9DE\uCDB0\uC57C \uD55C\uB2E4(theme.ts \uBC30\uACBD \uADDC\uCE59). \uBBF8\uC124\uC815 \uC2DC \uB2E4\uD06C \uD3F4\uBC31. */
   background: var(--bg, #1e1e1e);
 }
 .sk-term-xterm {
@@ -14789,7 +14789,7 @@ function createPerfCounters() {
 }
 
 // src/restore.ts
-var SIDECAR_NAME = "terminal-alacritty";
+var TERMINAL_CONTRACT = "soksak-sidecar-terminal-spec@1";
 function b64ToBytes(b64) {
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);
@@ -14799,7 +14799,8 @@ function b64ToBytes(b64) {
 function ensureSidecar(app) {
   const proc = app.process;
   if (!proc) return;
-  proc.spawn(`sidecar:${SIDECAR_NAME}`, [], { detached: true }).catch((e) => {
+  const unit = proc.sidecarName(TERMINAL_CONTRACT);
+  proc.spawn(`sidecar:${unit}`, [], { detached: true }).catch((e) => {
     app.activity.publish("terminal.sidecar.spawn-failed", {
       message: `${t("sidecar.spawn-failed", app.locale())} (${String(e)})`
     });
