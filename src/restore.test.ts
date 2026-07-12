@@ -42,6 +42,17 @@ function fakeApp(stubs: Stubs) {
   return { app, published, spawned };
 }
 
+// rehydrate 재시도 유계를 즉시 소진시킨다 — Date.now 를 크게 전진시켜 부팅 핸드셰이크 데드라인을
+// 곧장 넘긴다(실 setTimeout 은 유지 → 짧은 실지연 1~2회). ensureSession 테스트와 같은 기법.
+function exhaustRetry(): () => void {
+  const realNow = Date.now;
+  let t = realNow();
+  vi.spyOn(Date, "now").mockImplementation(() => (t += 2500));
+  return () => {
+    Date.now = realNow;
+  };
+}
+
 describe("orchestrateRestore", () => {
   it("warm: rehydrate paints inert and attaches from uptoSeq", async () => {
     const { app } = fakeApp({
@@ -79,15 +90,39 @@ describe("orchestrateRestore", () => {
     expect(out.painted).toBe(false); // floor 가 이력 바닥을 깐다
   });
 
-  it("degraded: a dead sidecar is announced loudly, respawned, and falls to the seal path", async () => {
+  it("warm boot-race: retries rehydrate until the sidecar comes up, then attaches", async () => {
+    // 부팅 직후 사이드카 소켓이 아직 없어 connect 가 거부되다가(2회) 뜨면(3회) 성공. 즉시 degraded
+    // 로 떨어지지 않고 유계 재시도로 warm 에 수렴해야 한다(이력 복원 유실 방지).
+    let calls = 0;
+    const { app } = fakeApp({
+      rehydrate: () => {
+        calls++;
+        if (calls < 3) throw new Error("no terminal sidecar"); // 스폰 중 — 소켓 미도달
+        return { ok: true, code: "OK", data: { paint: paintB64("WARM-LATE"), uptoSeq: 77, altActive: false } };
+      },
+    });
+    const writes: string[] = [];
+    const out = await orchestrateRestore(app, "v1", (d) => writes.push(bytesToStr(d)));
+    expect(calls).toBe(3); // 두 번 실패 후 세 번째에 성공(즉시 포기 아님)
+    expect(out.replay).toEqual({ fromSeq: 77 });
+    expect(out.painted).toBe(true);
+    expect(writes.join("")).toContain("WARM-LATE");
+  });
+
+  it("degraded: a dead sidecar is retried to the bound, then announced and falls to the seal path", async () => {
+    let calls = 0;
     const { app, published, spawned } = fakeApp({
       rehydrate: () => {
+        calls++;
         throw new Error("no terminal sidecar");
       },
       sealed: { paintB64: paintB64("COLD-VIA-FALLBACK"), altActive: false },
     });
+    const restore = exhaustRetry();
     const writes: string[] = [];
     const out = await orchestrateRestore(app, "v1", (d) => writes.push(bytesToStr(d)));
+    restore();
+    expect(calls).toBeGreaterThan(1); // 즉시 포기 아님 — 유계 재시도 후 소진
     expect(published.some((p) => p.kind === "terminal.restore.degraded")).toBe(true);
     expect(spawned).toContain("sidecar:terminal-alacritty"); // 리스폰
     expect(out.painted).toBe(true);
@@ -95,15 +130,20 @@ describe("orchestrateRestore", () => {
     expect(writes.join("")).toContain("COLD-VIA-FALLBACK");
   });
 
-  it("degraded with no blob → loud degraded-fresh notice, fresh shell (no core fallback)", async () => {
+  it("degraded with no blob → retried to the bound, then loud degraded-fresh notice", async () => {
+    let calls = 0;
     const { app, published } = fakeApp({
       rehydrate: () => {
+        calls++;
         throw new Error("down");
       },
       sealed: null,
     });
+    const restore = exhaustRetry();
     const writes: string[] = [];
     const out = await orchestrateRestore(app, "v1", (d) => writes.push(bytesToStr(d)));
+    restore();
+    expect(calls).toBeGreaterThan(1); // 유계 재시도 후 소진(즉시 degraded 아님)
     // 코어 폴백 없이 신선 셸 — 무음 금지: 화면 + 활동에 고지.
     expect(out.replay).toBe("none");
     expect(out.painted).toBe(false); // floor 가 이력 바닥을 깐다
