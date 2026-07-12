@@ -18,6 +18,8 @@ const EN: Dict = {
   "restore.cold-blocked":
     "Sealed screen restore is blocked; starting live only.",
   "sidecar.spawn-failed": "Failed to spawn the terminal restore sidecar.",
+  "sidecar.subscribe-timeout":
+    "The restore sidecar did not subscribe this session in time — restore fidelity is limited for this session.",
 };
 
 const KO: Dict = {
@@ -33,6 +35,8 @@ const KO: Dict = {
     "터미널 복원 사이드카에 닿지 못해 복원이 제한됩니다(봉인 기록으로 폴백).",
   "restore.cold-blocked": "봉인 화면 복원이 차단되어 라이브만 시작합니다.",
   "sidecar.spawn-failed": "터미널 복원 사이드카 스폰에 실패했습니다.",
+  "sidecar.subscribe-timeout":
+    "복원 사이드카가 이 세션을 제때 구독하지 못했습니다 — 이 세션의 복원 충실도가 제한됩니다.",
 };
 
 export function t(key: string, lang: string): string {

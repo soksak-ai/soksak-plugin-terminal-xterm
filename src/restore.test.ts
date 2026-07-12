@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { orchestrateRestore, ensureSidecar } from "./restore";
+import { orchestrateRestore, ensureSidecar, ensureSession } from "./restore";
 import type { PluginApi } from "./host";
 
 // base64 of a tiny ANSI marker so the paint carries something recognizable.
@@ -108,6 +108,46 @@ describe("orchestrateRestore", () => {
     const out = await orchestrateRestore(app, "v1", () => {});
     expect(out.deferToCoreRestore).toBe(true);
     expect(out.replay).toBeUndefined();
+  });
+});
+
+describe("ensureSession", () => {
+  it("retries until the sidecar subscribes (survives an async sidecar spawn)", async () => {
+    let calls = 0;
+    const app = {
+      locale: () => "ko",
+      activity: { publish: () => {} },
+      pty: {
+        sidecarRequest: async (req: Record<string, unknown>) => {
+          expect(req.op).toBe("ensureSession");
+          calls++;
+          if (calls < 3) throw new Error("no terminal sidecar"); // 아직 안 뜸
+          return { ok: true, code: "OK", data: { subscribed: true } };
+        },
+      },
+    } as unknown as PluginApi;
+    await ensureSession(app, "v1", 80, 24);
+    expect(calls).toBe(3); // 두 번 실패 후 세 번째에 구독 성공
+  });
+
+  it("gives up loudly after the bound instead of silently", async () => {
+    const published: string[] = [];
+    const app = {
+      locale: () => "ko",
+      activity: { publish: (kind: string) => published.push(kind) },
+      pty: {
+        sidecarRequest: async () => {
+          throw new Error("down");
+        },
+      },
+    } as unknown as PluginApi;
+    // deadline 을 짧게: Date.now 를 진행시켜 유계 초과를 강제한다.
+    const realNow = Date.now;
+    let t = realNow();
+    vi.spyOn(Date, "now").mockImplementation(() => (t += 3000)); // 매 호출마다 3s 전진
+    await ensureSession(app, "v1", 80, 24);
+    Date.now = realNow;
+    expect(published).toContain("terminal.sidecar.subscribe-timeout");
   });
 });
 
