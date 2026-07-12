@@ -41,8 +41,13 @@ export function ensureSidecar(app: PluginApi): void {
 }
 
 // 터미널 스폰 직후 호출 — 사이드카가 이 pane 의 세션을 구독하게 한다(부팅 후 태어난 세션의
-// tee 를 근접-birth 에 잡아 다음 재시작의 warm 복원을 가능케 한다). 멱등·best-effort:
-// 사이드카가 아직 준비 전이어도 그 startup 이 현재 세션을 잡으므로 실패를 삼킨다.
+// tee 를 근접-birth 에 잡아 다음 재시작의 warm 복원을 가능케 한다). 멱등.
+//
+// 사이드카 스폰(ensureSidecar)은 비동기라 첫 부팅엔 아직 서비스 소켓이 안 떠 있을 수 있다.
+// 한 번만 시도하고 삼키면 구독이 안 서고, 이후 출력(사용자 명령)은 미러에 안 담겨 다음
+// 재시작 warm 복원이 그 이력을 잃는다. 그래서 구독이 설 때까지 유계 재시도(백오프)한다 —
+// 사이드카가 뜨는 즉시(대개 1~2s) 구독해, 사용자가 명령을 치기 전에 tee 를 잡는다. 유계
+// 초과는 loud 고지(무음 아님) — 이번 부팅 복원 충실도가 제한됨을 알린다.
 export async function ensureSession(
   app: PluginApi,
   paneId: string,
@@ -51,11 +56,22 @@ export async function ensureSession(
 ): Promise<void> {
   const pty = app.pty;
   if (!pty) return;
-  try {
-    await pty.sidecarRequest({ op: "ensureSession", pane: paneId, cols, rows });
-  } catch {
-    /* 사이드카 미준비 등 — best-effort(다음 마운트/사이드카 startup 이 잡는다). */
+  const deadline = Date.now() + 8000;
+  let delay = 150;
+  while (Date.now() < deadline) {
+    try {
+      const r = await pty.sidecarRequest({ op: "ensureSession", pane: paneId, cols, rows });
+      if (r.ok === true) return; // 구독됨(또는 이미 미러 중).
+      // ok:false(NOT_FOUND 등) — 세션이 아직 데몬 목록에 안 떴거나 사이드카 준비 중. 재시도.
+    } catch {
+      // 사이드카 미준비(relay connect 실패) — 재시도.
+    }
+    await new Promise((res) => setTimeout(res, delay));
+    delay = Math.min(delay * 2, 1000);
   }
+  app.activity.publish("terminal.sidecar.subscribe-timeout", {
+    message: `${t("sidecar.subscribe-timeout", app.locale())} (${paneId})`,
+  });
 }
 
 // 마운트 시 화면 복원 결정 + inert 페인트(PTY 우회). spawn 전에 부른다: warm 은 uptoSeq 좌표가
