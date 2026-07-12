@@ -15,10 +15,17 @@
   "implements": [
     "terminal-spec@1"
   ],
+  "sidecars": [
+    {
+      "name": "terminal-alacritty",
+      "interface": "soksak-sidecar-terminal-spec@1"
+    }
+  ],
   "permissions": [
     "ui",
     "commands",
     "programs",
+    "process",
     "pty",
     "data",
     "terminal",

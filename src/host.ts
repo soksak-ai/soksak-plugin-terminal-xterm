@@ -69,6 +69,9 @@ export interface PtyApi {
     cwd?: string;
     shell?: string;
     paneId?: string;
+    /** 화면 복원 제어(배관) — 항상 명시: "none"=소비자가 화면 소유, {fromSeq}=raw 링을 그
+     *  seq 부터 부착(레이스-프리 warm 핸드오프). */
+    replay?: "none" | { fromSeq: number };
   }): Promise<number>;
   /** ptyId 에 텍스트/바이트 전송(키 입력). */
   write(id: number, data: string | Uint8Array): Promise<void>;
@@ -93,6 +96,34 @@ export interface PtyApi {
     paneId: string,
     io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
   ): Disposable;
+  /** 생존 서비스 사이드카의 서비스 소켓에 NDJSON 요청/응답 1왕복 릴레이(웹뷰 JS 는 UDS 불가).
+   *  코어는 내용 불가지 — 요청/응답 JSON 통과 + 현재 창 label 스탬프. 연결 실패는 throw(사이드카
+   *  사망 loud). {ok,code,data}/{ok:false,code,message} 봉투를 그대로 돌려준다. */
+  sidecarRequest(req: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** 이 pane 의 봉인 체크포인트를 앱 볼트로 개봉한 평문(base64)+altActive. 잠금=throw(fail-closed),
+   *  블롭 없음=null. 죽은 세션 화면 cold 복원(사이드카 불요). */
+  readSealedScreen(
+    paneId: string,
+  ): Promise<{ paintB64: string; altActive: boolean } | null>;
+}
+
+// app.process — 외부 서브프로세스 spawn("process" 권한). 여기선 생존 서비스 사이드카를
+// detached 로 스폰하는 데만 쓴다(cmd "sidecar:{name}", danger 게이트는 코어).
+export interface ProcessApi {
+  spawn(
+    cmd: string,
+    args: string[],
+    opts?: {
+      cwd?: string;
+      env?: Record<string, string>;
+      envRemove?: string[];
+      secretEnv?: Record<string, string>;
+      /** setsid 생존 스폰 — "sidecar:{name}" 대상만 허용(코어 detached_gate). */
+      detached?: boolean;
+    },
+  ): Promise<number>;
+  onExit(handle: number, cb: (code: number) => void): Disposable;
+  kill(handle: number): Promise<void>;
 }
 
 export interface PluginApi {
@@ -136,6 +167,8 @@ export interface PluginApi {
     registerView: (viewId: string, provider: PluginViewProvider) => Disposable;
   };
   pty?: PtyApi;
+  // 생존 서비스 사이드카 스폰용("process" 권한). 미선언이면 undefined(graceful).
+  process?: ProcessApi;
   bus: {
     emit: (topic: string, payload: unknown) => void;
     on: (topic: string, fn: (payload: unknown) => void) => Disposable;
