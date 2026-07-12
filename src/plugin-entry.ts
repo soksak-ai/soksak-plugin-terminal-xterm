@@ -93,7 +93,7 @@ async function setupBlockPersistence(
   // 그대로 쌓이고, 다음 신선 open 이 마커·이어가기 힌트를 다시 그린다. 복원 pane 에서 잃는 건
   // 인라인 resume 힌트뿐이며(terminal.resume 커맨드는 유지), warm 은 세션이 살아 있어 resume 이
   // 불필요하다. 신호는 플러그인-내부다(inst.restorePainted) — 이 플러그인이 복원을 소유하니
-  // 스스로 그렸는지 스스로 안다(코어 wasScreenRestored 의존 제거, 방출 M3). 복원이 없었을
+  // 스스로 그렸는지 스스로 안다(외부 신호 불요). 복원이 없었을
   // 때만(신선 터미널·잠긴 볼트로 cold 차단) floor 로 그린다.
   if (!inst.restorePainted) await hydrate(); // mount 시 1회(복원 안 됐을 때만 — 평문/unlock 즉시 복원)
 

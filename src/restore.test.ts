@@ -8,7 +8,6 @@ const paintB64 = (s: string) => btoa(s);
 interface Stubs {
   rehydrate?: () => unknown; // throw = sidecar down; return reply envelope
   sealed?: unknown | null | (() => never);
-  screenRestored?: boolean;
 }
 
 function fakeApp(stubs: Stubs) {
@@ -38,7 +37,6 @@ function fakeApp(stubs: Stubs) {
         if (typeof stubs.sealed === "function") return (stubs.sealed as () => never)();
         return (stubs.sealed ?? null) as { paintB64: string; altActive: boolean } | null;
       },
-      wasScreenRestored: () => stubs.screenRestored ?? false,
     },
   } as unknown as PluginApi;
   return { app, published, spawned };
@@ -74,12 +72,11 @@ describe("orchestrateRestore", () => {
     expect(all).toContain("복원"); // 소실 고지가 화면에 찍힌다(무음 금지)
   });
 
-  it("fresh: no mirror and no blob → default replay, floor draws", async () => {
+  it("fresh: no mirror and no blob → replay none, floor draws", async () => {
     const { app } = fakeApp({ sealed: null });
     const out = await orchestrateRestore(app, "v1", () => {});
-    expect(out.replay).toBeUndefined();
-    expect(out.painted).toBe(false);
-    expect(out.deferToCoreRestore).toBeFalsy();
+    expect(out.replay).toBe("none"); // 스폰은 항상 명시(코어 폴백 없음)
+    expect(out.painted).toBe(false); // floor 가 이력 바닥을 깐다
   });
 
   it("degraded: a dead sidecar is announced loudly, respawned, and falls to the seal path", async () => {
@@ -98,16 +95,20 @@ describe("orchestrateRestore", () => {
     expect(writes.join("")).toContain("COLD-VIA-FALLBACK");
   });
 
-  it("degraded with no blob → defers painted to the core restore signal", async () => {
-    const { app } = fakeApp({
+  it("degraded with no blob → loud degraded-fresh notice, fresh shell (no core fallback)", async () => {
+    const { app, published } = fakeApp({
       rehydrate: () => {
         throw new Error("down");
       },
       sealed: null,
     });
-    const out = await orchestrateRestore(app, "v1", () => {});
-    expect(out.deferToCoreRestore).toBe(true);
-    expect(out.replay).toBeUndefined();
+    const writes: string[] = [];
+    const out = await orchestrateRestore(app, "v1", (d) => writes.push(bytesToStr(d)));
+    // 코어 폴백 없이 신선 셸 — 무음 금지: 화면 + 활동에 고지.
+    expect(out.replay).toBe("none");
+    expect(out.painted).toBe(false); // floor 가 이력 바닥을 깐다
+    expect(published.some((p) => p.kind === "terminal.restore.degraded-fresh")).toBe(true);
+    expect(writes.join("")).toContain("복원 서비스 미가동"); // 화면에도 loud
   });
 });
 
