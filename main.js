@@ -332,7 +332,13 @@ var EN = {
   // 활동 로그 — 이 플러그인이 소유하는 터미널 명령 활동의 표시/낭독 문장(코어 아님).
   "activity.exit": "exit",
   "activity.done.ok": "A terminal command finished.",
-  "activity.done.fail": "A command failed with code"
+  "activity.done.fail": "A command failed with code",
+  // cold 복원 고지 — 죽은 세션의 봉인 화면을 다시 그렸을 때 화면에 찍는다(무음 금지).
+  "cold-restore-notice": "[Restored from a sealed checkpoint \u2014 the running process ended and was not restored; only the screen record was repainted]",
+  // degraded 고지 — 복원 사이드카에 닿지 못했을 때(활동 로그).
+  "restore.degraded": "Could not reach the terminal restore sidecar \u2014 restore is degraded (falling back to the sealed record).",
+  "restore.cold-blocked": "Sealed screen restore is blocked; starting live only.",
+  "sidecar.spawn-failed": "Failed to spawn the terminal restore sidecar."
 };
 var KO = {
   connecting: "\uC5F0\uACB0 \uC911\u2026",
@@ -340,7 +346,11 @@ var KO = {
   title: "\uD130\uBBF8\uB110",
   "activity.exit": "\uC885\uB8CC",
   "activity.done.ok": "\uD130\uBBF8\uB110 \uBA85\uB839\uC774 \uB05D\uB0AC\uC5B4\uC694.",
-  "activity.done.fail": "\uBA85\uB839\uC774 \uC2E4\uD328\uD588\uC5B4\uC694. \uCF54\uB4DC"
+  "activity.done.fail": "\uBA85\uB839\uC774 \uC2E4\uD328\uD588\uC5B4\uC694. \uCF54\uB4DC",
+  "cold-restore-notice": "[\uBD09\uC778 \uCCB4\uD06C\uD3EC\uC778\uD2B8\uC5D0\uC11C \uBCF5\uC6D0 \u2014 \uC2E4\uD589 \uC911\uC774\uB358 \uD504\uB85C\uC138\uC2A4\uB294 \uC885\uB8CC\uB418\uC5B4 \uBCF5\uC6D0\uB418\uC9C0 \uC54A\uC558\uACE0, \uD654\uBA74 \uAE30\uB85D\uB9CC \uB2E4\uC2DC \uADF8\uB838\uC2B5\uB2C8\uB2E4]",
+  "restore.degraded": "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0AC\uC774\uB4DC\uCE74\uC5D0 \uB2FF\uC9C0 \uBABB\uD574 \uBCF5\uC6D0\uC774 \uC81C\uD55C\uB429\uB2C8\uB2E4(\uBD09\uC778 \uAE30\uB85D\uC73C\uB85C \uD3F4\uBC31).",
+  "restore.cold-blocked": "\uBD09\uC778 \uD654\uBA74 \uBCF5\uC6D0\uC774 \uCC28\uB2E8\uB418\uC5B4 \uB77C\uC774\uBE0C\uB9CC \uC2DC\uC791\uD569\uB2C8\uB2E4.",
+  "sidecar.spawn-failed": "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0AC\uC774\uB4DC\uCE74 \uC2A4\uD3F0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4."
 };
 function t(key, lang) {
   const dict = lang === "ko" ? KO : EN;
@@ -14773,6 +14783,70 @@ function createPerfCounters() {
   };
 }
 
+// src/restore.ts
+var SIDECAR_NAME = "terminal-alacritty";
+function b64ToBytes(b64) {
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i8 = 0; i8 < bin.length; i8++) out[i8] = bin.charCodeAt(i8);
+  return out;
+}
+function ensureSidecar(app) {
+  const proc = app.process;
+  if (!proc) return;
+  proc.spawn(`sidecar:${SIDECAR_NAME}`, [], { detached: true }).catch((e) => {
+    app.activity.publish("terminal.sidecar.spawn-failed", {
+      message: `${t("sidecar.spawn-failed", app.locale())} (${String(e)})`
+    });
+  });
+}
+async function ensureSession(app, paneId, cols, rows) {
+  const pty = app.pty;
+  if (!pty) return;
+  try {
+    await pty.sidecarRequest({ op: "ensureSession", pane: paneId, cols, rows });
+  } catch {
+  }
+}
+async function orchestrateRestore(app, paneId, writeInert) {
+  const pty = app.pty;
+  if (!pty) return { replay: void 0, painted: false };
+  try {
+    const reply = await pty.sidecarRequest({ op: "rehydrate", pane: paneId });
+    if (reply.ok === true) {
+      const data = reply.data;
+      writeInert(b64ToBytes(data.paint));
+      return { replay: { fromSeq: data.uptoSeq }, painted: true };
+    }
+  } catch {
+    app.activity.publish("terminal.restore.degraded", { message: t("restore.degraded", app.locale()) });
+    ensureSidecar(app);
+    return coldOrFresh(app, paneId, writeInert, true);
+  }
+  return coldOrFresh(app, paneId, writeInert, false);
+}
+async function coldOrFresh(app, paneId, writeInert, sidecarDown) {
+  const pty = app.pty;
+  if (!pty) return { replay: void 0, painted: false };
+  try {
+    const sealed = await pty.readSealedScreen(paneId);
+    if (sealed) {
+      writeInert(b64ToBytes(sealed.paintB64));
+      writeInert(`\x1B[2m${t("cold-restore-notice", app.locale())}\x1B[0m\r
+`);
+      return { replay: "none", painted: true };
+    }
+  } catch (e) {
+    app.activity.publish("terminal.restore.cold-blocked", {
+      message: `${t("restore.cold-blocked", app.locale())} (${String(e)})`
+    });
+  }
+  if (sidecarDown) {
+    return { replay: void 0, painted: false, deferToCoreRestore: true };
+  }
+  return { replay: void 0, painted: false };
+}
+
 // src/terminal.ts
 var FLOW_ACK_SIZE = 5e3;
 async function createTerminal(options) {
@@ -14975,13 +15049,29 @@ async function createTerminal(options) {
       });
     });
   };
+  let restorePainted = false;
+  let replay;
+  let deferToCoreRestore = false;
+  if (options.app && options.paneId) {
+    const outcome = await orchestrateRestore(options.app, options.paneId, (d2) => term.write(d2));
+    replay = outcome.replay;
+    restorePainted = outcome.painted;
+    deferToCoreRestore = outcome.deferToCoreRestore ?? false;
+  }
   termId = await pty.spawn({
     cols: term.cols,
     rows: term.rows,
     cwd: options.cwd ?? void 0,
     shell: options.shell ?? void 0,
-    paneId: options.paneId ?? void 0
+    paneId: options.paneId ?? void 0,
+    replay
   });
+  if (deferToCoreRestore && options.paneId) {
+    restorePainted = pty.wasScreenRestored(options.paneId);
+  }
+  if (options.app && options.paneId) {
+    void ensureSession(options.app, options.paneId, term.cols, term.rows);
+  }
   if (disposed) {
     pty.close(termId).catch(() => {
     });
@@ -14992,6 +15082,7 @@ async function createTerminal(options) {
     webgl?.dispose();
     return {
       element: container,
+      restorePainted,
       dispose: async () => {
       },
       focus: () => {
@@ -15117,6 +15208,8 @@ async function createTerminal(options) {
   };
   return {
     element: container,
+    // 이 마운트가 복원 화면을 그렸는가 — plugin-entry 가 명령-블록 floor 를 겹칠지 판정한다.
+    restorePainted,
     // 포커스/노출/이동(appendChild) 직후 호출되는 경로 — 지금 맞춰야 한다.
     fit: () => doResize(true),
     focus: () => term.focus(),
@@ -15184,6 +15277,7 @@ async function createTerminal(options) {
 async function createTerminalInstance(opts) {
   return createTerminal({
     pty: opts.pty,
+    app: opts.app,
     cwd: opts.cwd,
     shell: opts.shell,
     paneId: opts.paneId ?? void 0,
@@ -15370,8 +15464,7 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
     } catch {
     }
   };
-  const screenRestored = app.pty?.wasScreenRestored?.(viewId) ?? false;
-  if (!screenRestored) await hydrate();
+  if (!inst.restorePainted) await hydrate();
   let locked = false;
   let startTs = Date.now();
   let startPid = null;
@@ -15439,6 +15532,7 @@ var plugin_entry_default = {
   activate(ctx) {
     const app = ctx.app;
     injectStyles();
+    ensureSidecar(app);
     ctx.subscriptions.push(
       app.events.on("command.started", (p2) => {
         const e = p2;
@@ -15503,6 +15597,8 @@ var plugin_entry_default = {
             );
             createTerminalInstance({
               pty: app.pty,
+              // 복원 오케스트레이션(warm rehydrate·cold 봉인 읽기·degraded 고지)에 앱 표면을 넘긴다.
+              app,
               // 복원 seam(B3): 재시작 복원이면 마지막 관찰 cwd 에서 시작(코어가 OSC 관찰값을
               // 영속해 restore.cwd 로 전달). 새 뷰·값 없음 = 프로젝트 root(기존 동작).
               cwd: vctx.restore?.cwd ?? vctx.root ?? void 0,
