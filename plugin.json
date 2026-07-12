@@ -7,6 +7,7 @@
   },
   "version": "0.0.1",
   "repo": "https://github.com/soksak-ai/soksak-plugin-terminal-xterm.git",
+  "renamedFrom": "soksak-plugin-terminal",
   "description": {
     "ko": "xterm.js 터미널 패널 — 코어 PTY 를 직접 구동.",
     "en": "xterm.js terminal pane driven by core PTY."
