@@ -88,8 +88,8 @@ export interface TerminalHandle {
 export interface TerminalInstance {
   element: HTMLElement;
   /** 이 터미널이 마운트 시 복원 화면을 스스로 그렸는가(warm rehydrate | cold 봉인 페인트).
-   *  true 면 명령-블록 floor(이력 repaint)를 겹치지 않는다 — 복원 프레임이 뷰포트 권위. 코어
-   *  wasScreenRestored 의존 대신 플러그인-내부 판단(자기가 그렸으니 자기가 안다). */
+   *  true 면 명령-블록 floor(이력 repaint)를 겹치지 않는다 — 복원 프레임이 뷰포트 권위. 판단은
+   *  플러그인 내부 사실(자기가 그렸으니 자기가 안다) — 외부 신호 불요. */
   readonly restorePainted: boolean;
   dispose(): Promise<void>;
   focus(): void;
@@ -444,25 +444,23 @@ export async function createTerminal(
   };
 
   // ── 화면 복원 오케스트레이션(스폰 전) ──────────────────────────────────────
-  // 이 플러그인이 복원을 소유한다(코어 방출 M3): warm=사이드카 rehydrate→inert 페인트→
-  // from_seq 로 라이브 이음, cold=봉인 블롭→페인트+소실 고지→'none', fresh=코어 기본.
+  // 이 플러그인이 복원을 소유한다: warm=사이드카 rehydrate→inert 페인트→from_seq 로 라이브
+  // 이음, cold=봉인 블롭→페인트+소실 고지→"none", fresh/degraded="none".
+  // 스폰은 항상 replay 를 명시한다 — "코어 기본"(undefined)은 없다.
   // spawn 전에 그린다 — warm 은 uptoSeq 좌표가 필요하고 cold 는 신선 셸 출력 전에 그려야 한다.
   let restorePainted = false;
-  let replay: "none" | { fromSeq: number } | undefined;
-  let deferToCoreRestore = false;
+  let replay: "none" | { fromSeq: number } = "none";
   if (options.app && options.paneId) {
     const outcome = await orchestrateRestore(options.app, options.paneId, (d) => term.write(d));
     replay = outcome.replay;
     restorePainted = outcome.painted;
-    deferToCoreRestore = outcome.deferToCoreRestore ?? false;
     // 소비자가 detached 중 그린 복원 페인트는 가시화 시 렌더 플러시가 필요하다(위 불변식).
-    // 코어 소유 복원(deferToCoreRestore)은 데몬 스트림이 attach 후 라이브로 그리므로 불요.
     if (outcome.painted) restorePaintPending = true;
   }
 
   // windowLabel 은 코어 substrate 가 내부에서 채운다 — 플러그인은 자기 창 label 을 알 필요가
-  // 없다(코어가 IO 등록 키=paneId 로 라우팅). replay 는 위 오케스트레이션이
-  // 정한 화면 복원 제어(배관): none=소비자 소유, {fromSeq}=warm 핸드오프, 없음=코어 기본.
+  // 없다(코어가 IO 등록 키=paneId 로 라우팅). replay 는 위 오케스트레이션이 정한 화면 복원
+  // 제어(배관): "none"=소비자 소유/신선, {fromSeq}=warm 핸드오프. 항상 명시.
   termId = await pty.spawn({
     cols: term.cols,
     rows: term.rows,
@@ -472,10 +470,6 @@ export async function createTerminal(
     replay,
   });
 
-  // degraded 기본 경로(사이드카 다운 + 봉인 없음): 코어가 warm-live 를 복원했으면 floor 스킵.
-  if (deferToCoreRestore && options.paneId) {
-    restorePainted = pty.wasScreenRestored(options.paneId);
-  }
   // 사이드카가 이 세션을 구독하게 한다 — 부팅 후 태어난 세션의 tee 를 근접-birth 에 잡아
   // 다음 재시작의 warm 복원 토대가 된다. best-effort(사이드카 준비 전이면 그 startup 이 잡는다).
   if (options.app && options.paneId) {
