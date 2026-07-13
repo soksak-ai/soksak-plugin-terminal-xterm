@@ -14,12 +14,12 @@
   },
   "entry": "main.js",
   "implements": [
-    "terminal-spec@1"
+    "soksak-spec-plugin-terminal"
   ],
   "sidecars": [
     {
       "name": "terminal-alacritty",
-      "interface": "soksak-sidecar-terminal-spec@1"
+      \"interface\": { \"id\": \"soksak-spec-sidecar-terminal\", \"range\": \"0.0.1\" }
     }
   ],
   "permissions": [
