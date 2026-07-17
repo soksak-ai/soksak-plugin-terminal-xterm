@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "type": "module",
-  "description": "soksak terminal plugin — xterm.js content view driven by core PTY",
+  "description": "soksak terminal plugin \u2014 xterm.js content view driven by core PTY",
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
@@ -25,5 +25,11 @@
     "esbuild": "^0.24.2",
     "typescript": "~5.9.3",
     "vitest": "^2.1.8"
+  },
+  "soksakRelease": {
+    "kind": "plugin",
+    "id": "soksak-plugin-terminal-xterm",
+    "repository": "https://github.com/soksak-ai/soksak-plugin-terminal-xterm",
+    "manifest": "release.json"
   }
 }

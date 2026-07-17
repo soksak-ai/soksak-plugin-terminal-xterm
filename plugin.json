@@ -2,14 +2,13 @@
   "spec": "soksak-spec-plugin@0.0.1",
   "id": "soksak-plugin-terminal-xterm",
   "name": {
-    "ko": "터미널",
+    "ko": "\ud130\ubbf8\ub110",
     "en": "Terminal"
   },
   "version": "0.0.1",
-  "repo": "https://github.com/soksak-ai/soksak-plugin-terminal-xterm.git",
   "renamedFrom": "soksak-plugin-terminal",
   "description": {
-    "ko": "xterm.js 터미널 패널 — 코어 PTY 를 직접 구동.",
+    "ko": "xterm.js \ud130\ubbf8\ub110 \ud328\ub110 \u2014 \ucf54\uc5b4 PTY \ub97c \uc9c1\uc811 \uad6c\ub3d9.",
     "en": "xterm.js terminal pane driven by core PTY."
   },
   "entry": "main.js",
@@ -44,7 +43,7 @@
       "type": "string",
       "default": "",
       "title": {
-        "ko": "셸",
+        "ko": "\uc178",
         "en": "Shell"
       }
     },
@@ -67,7 +66,7 @@
       ],
       "default": "webgl",
       "title": {
-        "ko": "터미널 렌더러",
+        "ko": "\ud130\ubbf8\ub110 \ub80c\ub354\ub7ec",
         "en": "Terminal renderer"
       }
     },
@@ -76,7 +75,7 @@
       "type": "string",
       "default": "\"JetBrains Mono\", \"SF Mono\", \"Cascadia Code\", Menlo, Consolas, \"Courier New\", monospace",
       "title": {
-        "ko": "글꼴",
+        "ko": "\uae00\uaf34",
         "en": "Font family"
       }
     },
@@ -87,7 +86,7 @@
       "min": 8,
       "max": 32,
       "title": {
-        "ko": "글꼴 크기",
+        "ko": "\uae00\uaf34 \ud06c\uae30",
         "en": "Font size"
       }
     },
@@ -98,7 +97,7 @@
       "min": 0,
       "max": 200000,
       "title": {
-        "ko": "스크롤백 줄 수",
+        "ko": "\uc2a4\ud06c\ub864\ubc31 \uc904 \uc218",
         "en": "Scrollback lines"
       }
     },
@@ -107,7 +106,7 @@
       "type": "boolean",
       "default": true,
       "title": {
-        "ko": "커서 깜빡임",
+        "ko": "\ucee4\uc11c \uae5c\ube61\uc784",
         "en": "Cursor blink"
       }
     },
@@ -121,21 +120,21 @@
       ],
       "enumLabels": [
         {
-          "ko": "블록",
+          "ko": "\ube14\ub85d",
           "en": "Block"
         },
         {
-          "ko": "밑줄",
+          "ko": "\ubc11\uc904",
           "en": "Underline"
         },
         {
-          "ko": "막대",
+          "ko": "\ub9c9\ub300",
           "en": "Bar"
         }
       ],
       "default": "block",
       "title": {
-        "ko": "커서 모양",
+        "ko": "\ucee4\uc11c \ubaa8\uc591",
         "en": "Cursor style"
       }
     }
@@ -145,7 +144,7 @@
       {
         "id": "terminal-xterm",
         "title": {
-          "ko": "터미널",
+          "ko": "\ud130\ubbf8\ub110",
           "en": "Terminal"
         },
         "kind": "view",
@@ -156,7 +155,7 @@
       {
         "id": "content",
         "title": {
-          "ko": "터미널",
+          "ko": "\ud130\ubbf8\ub110",
           "en": "Terminal"
         },
         "icon": ">_",
@@ -174,42 +173,42 @@
       {
         "name": "ping",
         "title": {
-          "ko": "플러그인 적재/버전 확인(E2E)",
+          "ko": "\ud50c\ub7ec\uadf8\uc778 \uc801\uc7ac/\ubc84\uc804 \ud655\uc778(E2E)",
           "en": "Ping (load/version check)"
         }
       },
       {
         "name": "send",
         "title": {
-          "ko": "텍스트 전송",
+          "ko": "\ud14d\uc2a4\ud2b8 \uc804\uc1a1",
           "en": "Send Text"
         }
       },
       {
         "name": "clear",
         "title": {
-          "ko": "지우기",
+          "ko": "\uc9c0\uc6b0\uae30",
           "en": "Clear"
         }
       },
       {
         "name": "resume",
         "title": {
-          "ko": "세션 이어가기",
+          "ko": "\uc138\uc158 \uc774\uc5b4\uac00\uae30",
           "en": "Resume Session"
         }
       },
       {
         "name": "perf.stats",
         "title": {
-          "ko": "성능 카운터 읽기",
+          "ko": "\uc131\ub2a5 \uce74\uc6b4\ud130 \uc77d\uae30",
           "en": "Read Performance Counters"
         }
       },
       {
         "name": "perf.echo",
         "title": {
-          "ko": "입력 에코 왕복 측정",
+          "ko": "\uc785\ub825 \uc5d0\ucf54 \uc655\ubcf5 \uce21\uc815",
           "en": "Measure Input Echo Roundtrip"
         }
       }
@@ -218,7 +217,7 @@
       {
         "id": "terminal-xterm",
         "description": {
-          "ko": "xterm.js 터미널 컨테이너",
+          "ko": "xterm.js \ud130\ubbf8\ub110 \ucee8\ud14c\uc774\ub108",
           "en": "xterm.js terminal container"
         }
       }
