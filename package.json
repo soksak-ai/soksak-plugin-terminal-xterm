@@ -1,9 +1,9 @@
 {
   "name": "soksak-plugin-terminal-xterm",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
-  "description": "soksak terminal plugin \u2014 xterm.js content view driven by core PTY",
+  "description": "soksak terminal plugin — xterm.js content view driven by core PTY",
   "scripts": {
     "build": "node build.mjs",
     "dev": "node build.mjs --watch",
