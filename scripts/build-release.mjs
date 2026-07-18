@@ -50,7 +50,8 @@ for (const [id, range] of Object.entries(plugin.dependencies ?? {}).sort()) {
   deps.push({ kind: "plugin", id, range });
 }
 for (const s of plugin.sidecars ?? []) {
-  if (s && typeof s.name === "string") deps.push({ kind: "sidecar", id: s.name, range: VERSION });
+  // sidecar 의존은 identity 만 선언한다 — 버전은 서명 인덱스가, 호환성은 interface 계약이 소유.
+  if (s && typeof s.name === "string") deps.push({ kind: "sidecar", id: `soksak-sidecar-${s.name}` });
 }
 deps.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
