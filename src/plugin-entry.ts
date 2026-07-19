@@ -1,6 +1,6 @@
 // soksak terminal 플러그인 엔트리 — loader 가 blob-URL 로 import 하는 단일 ESM(esbuild 번들).
 // 콘텐츠 뷰 "content" 를 등록 → xterm.js 터미널을 마운트한다. 마운트 오케스트레이션(splitMode 분기·
-// IO/포커스/명령 레지스트리·정리·split-pane 명령)은 kit(mountTerminalView·registerSplitPaneCommand)이
+// IO/포커스/명령 레지스트리·정리·split-pane 명령)은 kit(mountTerminalView·registerPaneCommands)이
 // 소유하고, 여기는 렌더러 팩토리(mountPane: xterm 인스턴스 + 블록 이력)와 뷰 컨테이너·제목만 준다.
 import { injectStyles } from "./styles";
 import { mountPane } from "./mount-pane";
@@ -9,7 +9,7 @@ import {
   ensureSidecar,
   createFocusCoordinator,
   mountTerminalView,
-  registerSplitPaneCommand,
+  registerPaneCommands,
   terminalStartedActivity,
   terminalFinishedActivity,
   type FocusCoordinator,
@@ -134,7 +134,7 @@ export default {
 
     registerCommands(ctx);
     // split-pane — kit 이 명령 모양·i18n 을 소유. 대상 호스트 해소만 여기서(view 지정 또는 첫 within-tab).
-    registerSplitPaneCommand(ctx, (view) => {
+    registerPaneCommands(ctx, (view) => {
       const viewId = view ?? [...mounts].find(([, m]) => m.handle.splitHost)?.[0];
       const m = viewId ? mounts.get(viewId) : undefined;
       return m?.handle.splitHost ? { viewId: viewId!, host: m.handle.splitHost } : null;
