@@ -1,195 +1,156 @@
 // soksak terminal 플러그인 엔트리 — loader 가 blob-URL 로 import 하는 단일 ESM(esbuild 번들).
-// 콘텐츠 뷰 "content" 를 등록 → xterm.js 터미널을 마운트, app.pty.* 로 PTY 구동.
+// 콘텐츠 뷰 "content" 를 등록 → xterm.js 터미널을 마운트, app.pty.* 로 PTY 구동. 렌더러 생성·
+// 명령 블록 영속·설정 재적용은 mount-pane.ts(mountPane)가 pane 단위로 소유한다 — 여기는 마운트
+// 수명·포커스 코디네이션·IO/명령 배선·분할 방식(splitMode) 분기만 얇게 처리한다(ghostty 와 대칭).
 import { injectStyles } from "./styles";
-import { createTerminalInstance } from "./terminal";
+import { mountPane } from "./mount-pane";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
 import {
   ensureSidecar,
   createFocusCoordinator,
+  createPaneSplitHost,
+  createActivePaneProxy,
   terminalStartedActivity,
   terminalFinishedActivity,
   type FocusCoordinator,
+  type PaneSplitHost,
   type Disposable,
-  type PluginApi,
   type PluginContext,
   type PluginViewContext,
 } from "soksak-kit-terminal-common";
 import type { TerminalInstance } from "./terminal";
 
-// [단계①] 명령 블록 영속 — 코어 app.data records 에 저장(R1), 복원(R4), retention(R5).
-const BLOCKS_COLL = "command_blocks";
-const RESTORE_N = 50; // 복원 budget(마지막 N 블록 — startup 비용 바운드)
-const RETAIN_CAP = 1000; // view 당 보존 cap(R5, #8835 의 1000-row 권고)
+// per-view 마운트 상태 — 포커스 코디네이터(렌더러 준비 전 포커스 요청을 잡는다) + (비분할) 단일
+// 렌더러 또는 (탭내) 분할 호스트 + io 핸들. split-pane 명령이 이 맵에서 대상 뷰를 찾는다.
+interface Mounted {
+  focus: FocusCoordinator;
+  single: TerminalInstance | null;
+  splitHost: PaneSplitHost | null;
+  io: Disposable | null;
+  disposed: boolean;
+}
+const mounts = new Map<string, Mounted>();
 
-/**
- * 이 터미널 뷰의 명령 블록 영속을 배선한다. "data" 권한 없으면 no-op(graceful).
- * - 복원(R4): mount 직후 이 viewId 의 마지막 N 블록을 inert text 로 write("[복원됨]" dim 마커, 재실행 0).
- * - 저장(R3): turn.ended(source:shell, 이 pane) 시 블록(commandLine/output/cwd/exitCode) put → retention.
- */
-async function setupBlockPersistence(
-  app: PluginApi,
+// 뷰 마운트 — splitMode 를 읽어 단일 렌더러(탭분할은 코어 panel.split) 또는 탭내 pane 분할로
+// 배선한다. 정리 함수를 반환한다.
+function mountTerminal(
+  container: HTMLElement,
+  ctx: PluginContext,
   vctx: PluginViewContext,
-  viewId: string,
-  inst: TerminalInstance,
-): Promise<Disposable | null> {
-  const data = app.data;
-  if (!data) return null; // "data" 권한 미선언 → 복원 기능 비활성(graceful)
-  const scope = vctx.root ?? vctx.projectId ?? "default"; // 프로젝트 단위 격리
+): () => void {
+  const app = ctx.app;
+  container.style.position = "relative";
+  container.style.overflow = "hidden";
+  const wrap = document.createElement("div");
+  wrap.className = "sk-term-wrap";
+  wrap.style.cssText = "position:absolute;inset:0;";
+  container.appendChild(wrap);
 
-  // 컬렉션 정의(멱등) — viewId 인덱스(복원 조회), commandLine FTS(검색). output 은 평문(단계② 가 암호화).
-  await data.define(BLOCKS_COLL, { indexes: ["viewId", "startTs"], fts: ["commandLine"] }).catch(() => {});
+  const viewId = vctx.viewId ?? `term-${Date.now()}`;
+  vctx.setTitle("Terminal");
+  vctx.setStatus({ code: "connecting", message: "Starting…" });
+  if (!app.pty) {
+    vctx.setStatus({ code: "error", message: "pty permission not granted" });
+    return () => {};
+  }
 
-  // 복원(R4): 이 viewId 의 마지막 N 블록(created 순) → inert text. 재실행 안 함(A6). 암호화 scope 가
-  // lock 이면 query 가 Err → catch(미페인트) → unlock broadcast 시 재호출(아래 onUnlocked).
-  const hydrate = async () => {
-    try {
-      const blocks = (await data.query(BLOCKS_COLL, {
-        scope,
-        where: { viewId },
-        order: "created",
-        desc: false,
-        limit: RESTORE_N,
-      })) as Array<{
-        commandLine?: string | null;
-        output?: string | null;
-        exitCode?: number | null;
-        sessionId?: string | null;
-        verified?: boolean | null; // [R9] lock 중 저장분(미인증)이면 false → resume affordance 차단
-      }>;
-      // 블록 output 은 turn 종료 시점의 "화면 전체 덤프"(readBuffer)다 — 블록마다 그대로
-      // 그리면 화면이 블록 수만큼 중복 페인트돼 지저분해진다(실측). 그래서:
-      //   · 이전 블록들 = 명령 마커 1줄만(이어가기 힌트 포함) — 컴팩트한 이력.
-      //   · 마지막 블록 = 마커 + 화면 덤프 — 종료 시점 화면 그대로 복원.
-      // 명령 없는 빈 턴(프롬프트만 지나간 turn.ended)은 그리지 않는다(마커 노이즈).
-      const paintable = blocks.filter((b) => !!b.commandLine);
-      // 라이브 프롬프트가 먼저 도착해 커서가 줄 중간이면 첫 마커가 그 줄에 이어붙는다(실측)
-      // — 화면에 이미 내용이 있으면 줄을 끊고 시작한다.
-      let lead = (inst.readBuffer(2) ?? "").trim().length > 0 ? "\r\n" : "";
-      for (let i = 0; i < paintable.length; i++) {
-        const b = paintable[i];
-        // [R9] sessionId 가 있고 인증된(verified !== false) claude 블록만 '이어가기' 힌트. lock 중 저장된
-        // 위조 가능 블록(verified===false)엔 affordance 를 안 띄운다(위조 history→공격자 resume 차단).
-        const resumable = b.sessionId && b.verified !== false;
-        const hint = resumable ? ` · sok terminal.resume {"session":"${b.sessionId}"}` : "";
-        // "[복원됨]" dim 마커로 라이브와 구분(R4). ANSI 보존은 후속 addon-serialize.
-        const head = `${lead}\x1b[2m[복원됨 ${b.commandLine}${hint}]\x1b[0m\r\n`;
-        lead = "";
-        if (i < paintable.length - 1) {
-          inst.write(head);
-          continue;
+  const m: Mounted = {
+    focus: createFocusCoordinator(),
+    single: null,
+    splitHost: null,
+    io: null,
+    disposed: false,
+  };
+  mounts.set(viewId, m);
+
+  // 복원 seam(B3): 재시작 복원이면 마지막 관찰 cwd 에서 시작(코어가 OSC 관찰값을 영속해 restore.cwd
+  // 로 전달). 새 뷰·값 없음 = 프로젝트 root(기존 동작).
+  const cwd = vctx.restore?.cwd ?? vctx.root ?? undefined;
+  // 설정이 분할 방식을 정한다: "within-tab" = 뷰 내부를 pane 으로(kit split 호스트), 그 외 = 단일
+  // 렌더러(탭분할은 코어 panel.split 이 담당). 기본은 "tab"(정상 경로 무손상).
+  const withinTab = String(app.settings?.get?.("splitMode") ?? "tab") === "within-tab";
+  const fail = (err: unknown): void => {
+    if (!m.disposed) vctx.setStatus({ code: "error", message: String(err) });
+  };
+
+  if (withinTab) {
+    // 각 pane 은 자기 PTY·자기 블록 이력(paneId=`${viewId}~n`). io/포커스/명령은 활성 pane 에 위임.
+    // 첫 pane 만 initialCommand(에이전트 자동 실행).
+    let seq = 0;
+    let first = true;
+    void createPaneSplitHost({
+      container: wrap,
+      mintPaneId: () => `${viewId}~${seq++}`,
+      createRenderer: async (paneId) => {
+        const r = await mountPane(app, {
+          vctx,
+          paneId,
+          cwd,
+          initialCommand: first ? vctx.command ?? undefined : undefined,
+        });
+        first = false;
+        return r;
+      },
+      onEmpty: () => vctx.setStatus({ code: "error", message: "빈 뷰 — 마지막 pane 이 닫혔습니다" }),
+    })
+      .then((h) => {
+        if (m.disposed) {
+          void h.dispose();
+          return;
         }
-        // xterm 은 \r\n 이어야 열이 리셋된다(\n 만 쓰면 계단 — 실측). 그리고 덤프에는 이전
-        // 세대의 "[복원됨 …]" 마커 줄이 찍혀 있어 그대로 그리면 세대를 넘어 증식한다(실측)
-        // — 마커 줄을 걷어내고 그린다(저장 원본은 유지, 판단은 페인트에서만).
-        const out = (b.output ?? "")
-          .split(/\r?\n/)
-          .filter((ln) => !ln.includes("[복원됨")) // 줄 중간 화석(프롬프트+마커 충돌 줄)도 제거
-          .join("\r\n");
-        inst.write(head + out + (out.endsWith("\r\n") || out.length === 0 ? "" : "\r\n"));
+        m.splitHost = h;
+        // 코어 substrate IO — viewId 로 등록하되 활성 pane 에 위임(term.read/term.send 가 활성 pane 에 닿음).
+        m.io =
+          app.pty?.registerIo?.(viewId, {
+            readBuffer: (lines) => h.active()?.renderer.readBuffer(lines) ?? "",
+            sendInput: (data) => h.active()?.renderer.sendInput(data),
+          }) ?? null;
+        m.focus.attach({
+          focus: () => h.active()?.renderer.focus(),
+          prepareFocusTransfer: () => h.active()?.renderer.prepareFocusTransfer(),
+        });
+        // 명령(send/clear/resume/perf) 대상 레지스트리 — 위임 프록시 하나 등록(활성 pane 추종).
+        registerTerminal(viewId, createActivePaneProxy(h));
+        vctx.setStatus(null);
+      })
+      .catch(fail);
+    return () => cleanup(m, viewId, container);
+  }
+
+  void mountPane(app, { vctx, paneId: viewId, cwd, initialCommand: vctx.command ?? undefined })
+    .then((inst) => {
+      if (m.disposed) {
+        void inst.dispose(); // 마운트 완료 전 unmount — 즉시 정리(그 사이 스폰된 PTY 를 닫는다)
+        return;
       }
-    } catch {
-      /* 복원 실패(잠김 등)는 라이브 동작 비차단 — unlock 시 재시도 */
-    }
-  };
-  // [복원 소유권 계약] 이 터미널이 마운트 시 복원 화면을 그렸으면(warm rehydrate | cold 봉인
-  // 페인트) 그 화면이 뷰포트 권위다: 복원 프레임은 최근 이력을 이미 화면으로 담고, 그 위로
-  // 명령-블록 repaint(마커 + 마지막-블록 화면덤프)를 그리면 복원 프레임과 소실 고지가 뷰포트
-  // 밖(스크롤백)으로 밀려 사용자가 못 본다(실측 — cold 재오픈 시 100줄+ 위로). 렌더 순서는
-  // 고정이라(복원 페인트가 spawn 중 먼저, hydrate 는 그 아래) 마커를 남기면 이력이 클수록
-  // 프레임을 뷰포트 밖으로 민다 → 복원된 pane 에선 mount repaint 를 생략한다. 억제되는 건
-  // "화면 그리기"뿐이다: 저장(turn.ended→put)은 계속되어 command_blocks 모델은 app.data 에
-  // 그대로 쌓이고, 다음 신선 open 이 마커·이어가기 힌트를 다시 그린다. 복원 pane 에서 잃는 건
-  // 인라인 resume 힌트뿐이며(terminal.resume 커맨드는 유지), warm 은 세션이 살아 있어 resume 이
-  // 불필요하다. 신호는 플러그인-내부다(inst.restorePainted) — 이 플러그인이 복원을 소유하니
-  // 스스로 그렸는지 스스로 안다(외부 신호 불요). 복원이 없었을
-  // 때만(신선 터미널·잠긴 볼트로 cold 차단) floor 로 그린다.
-  if (!inst.restorePainted) await hydrate(); // mount 시 1회(복원 안 됐을 때만 — 평문/unlock 즉시 복원)
+      m.single = inst;
+      wrap.appendChild(inst.element);
+      // app.terminal.readBuffer/sendText 가 이 터미널에 닿도록 IO 핸들 등록(키=viewId=paneId).
+      m.io =
+        app.pty?.registerIo?.(viewId, {
+          readBuffer: (lines) => inst.readBuffer(lines),
+          sendInput: (data) => inst.sendInput(data),
+        }) ?? null;
+      // 렌더러 준비 완료 — 대기 중이던 포커스 요청이 있으면 코디네이터가 적용한다(창전환 팔로우).
+      m.focus.attach({ focus: () => inst.focus(), prepareFocusTransfer: () => inst.prepareFocusTransfer() });
+      registerTerminal(viewId, inst);
+      vctx.setStatus(null);
+      vctx.setTitle("Terminal");
+    })
+    .catch(fail);
 
-  // [R9] vault lock 동안 저장된 블록은 미인증(발신자 인증 없는 공개키 봉인 — 위조 가능) → verified=false.
-  // 이어가기 affordance 를 그런 블록엔 안 띄운다. lock/unlock 이벤트로 갱신(아래 onLocked/onUnlocked).
-  let locked = false;
+  return () => cleanup(m, viewId, container);
+}
 
-  // 저장(R3): turn.ended(shell) 시 블록 기록 + retention. 시작 시각·pid 추적(command.started 동반).
-  let startTs = Date.now();
-  let startPid: number | null = null; // [R2] 명령 시작 시 foreground pid(best-effort)
-  const unStart = app.events.on("command.started", (p) => {
-    const e = p as { paneId?: string; pid?: number | null };
-    if (e.paneId === viewId) {
-      startTs = Date.now();
-      startPid = e.pid ?? null;
-    }
-  });
-  const unEnd = app.events.on("turn.ended", (p) => {
-    const e = p as {
-      source?: string;
-      paneId?: string;
-      command?: string | null;
-      cwd?: string | null;
-      exitCode?: number;
-      agentKind?: string | null; // [단계⑤] claude/codex 이면 종류
-      sessionId?: string | null; // [단계⑤] 그 세션 id(코어 ai_session 매칭) — 복원 후 이어가기 토대
-    };
-    if (e.source !== "shell" || e.paneId !== viewId) return;
-    const output = inst.readBuffer(); // 화면 텍스트(plain; ANSI 보존은 후속 addon-serialize)
-    void data
-      .put(
-        BLOCKS_COLL,
-        {
-          viewId,
-          commandLine: e.command ?? null,
-          output,
-          cwd: e.cwd ?? null,
-          exitCode: e.exitCode ?? null,
-          agentKind: e.agentKind ?? null, // 계보(R2 스키마) — 비-에이전트 명령은 null
-          sessionId: e.sessionId ?? null,
-          pid: startPid, // [R2] 명령 foreground pid(command/pid/sessionId 짝, best-effort)
-          verified: !locked, // [R9] lock 중 저장이면 미인증 → 복원 시 resume affordance 차단
-          startTs,
-          endTs: Date.now(),
-        },
-        { scope },
-      )
-      .then(() => data.retentionTrim(BLOCKS_COLL, scope, RETAIN_CAP))
-      .catch((err: unknown) => console.error("[terminal] 블록 저장 실패:", err));
-  });
-
-  // [단계③·R14] vault 잠금 시 화면 평문 폐기 — 코어가 broadcast 하는 "soksak:vault-locked" DOM 이벤트
-  // (autoLock.ts VAULT_LOCKED_EVENT 계약)를 듣고 스크롤백을 clear 한다. 가림이 아니라 실제 삭제 —
-  // 복원된 블록·라이브 출력에 남은 비밀 echo 를 메모리/화면에서 지운다. 잠금은 사용자 의도적 행위(수동
-  // 또는 opt-in idle)라 무조건 clear 가 안전한 기본값. PTY(뒷단)는 코어 소유라 계속 산다.
-  const onLocked = () => {
-    locked = true; // 이후 저장 블록은 미인증(R9)
-    try {
-      inst.setScreenSuspended(true); // 잠금 중 새 PTY 출력 미페인트(평문 미노출, ACK 는 지속)
-      inst.clear(); // 기존 화면 평문 폐기
-    } catch {
-      /* clear 실패는 라이브 동작 비차단 */
-    }
-  };
-  window.addEventListener("soksak:vault-locked", onLocked);
-
-  // [단계④·R14] unlock 시 sealed 기록에서 재-hydrate — 잠금 중 clear 한 화면(+잠금 동안 봉인 저장된 뒷단
-  // 블록)을 복원한다. clear 후 hydrate 로 잔여 평문 라이브 출력도 비우고 sealed 블록만 다시 그린다.
-  const onUnlocked = () => {
-    locked = false;
-    try {
-      inst.setScreenSuspended(false); // 화면 페인트 재개
-      inst.clear(); // 잠금 직전 잔여 비우고 sealed 기록만 다시 그린다
-    } catch {
-      /* clear 실패 무시 */
-    }
-    void hydrate();
-  };
-  window.addEventListener("soksak:vault-unlocked", onUnlocked);
-
-  return {
-    dispose: () => {
-      unStart.dispose();
-      unEnd.dispose();
-      window.removeEventListener("soksak:vault-locked", onLocked);
-      window.removeEventListener("soksak:vault-unlocked", onUnlocked);
-    },
-  };
+function cleanup(m: Mounted, viewId: string, container: HTMLElement): void {
+  m.disposed = true;
+  m.focus.detach();
+  m.io?.dispose();
+  void m.single?.dispose();
+  void m.splitHost?.dispose();
+  unregisterTerminal(viewId);
+  mounts.delete(viewId);
+  container.replaceChildren();
 }
 
 export default {
@@ -227,160 +188,69 @@ export default {
     );
 
     if (app.ui?.registerView) {
-      const focusStates = new WeakMap<HTMLElement, FocusCoordinator>();
+      const cleanups = new WeakMap<HTMLElement, () => void>();
       ctx.subscriptions.push(
         app.ui.registerView("content", {
-          mount(container: HTMLElement, vctx: PluginViewContext) {
-            // 뷰 컨테이너 초기화
-            container.style.position = "relative";
-            container.style.overflow = "hidden";
-
-            // 래퍼 div — data-node="terminal-xterm" + 100% fill
-            const wrap = document.createElement("div");
-            wrap.className = "sk-term-wrap";
-            wrap.style.cssText = "position:absolute;inset:0;";
-            container.appendChild(wrap);
-
-            const viewId = vctx.viewId ?? `term-${Date.now()}`;
-
-            vctx.setTitle("Terminal");
-            vctx.setStatus({ code: "connecting", message: "Starting…" });
-
-            if (!app.pty) {
-              vctx.setStatus({ code: "error", message: "pty permission not granted" });
-              return;
-            }
-
-            let disposed = false;
-            let termInst: import("./terminal").TerminalInstance | null = null;
-            const focusCoord = createFocusCoordinator();
-            focusStates.set(container, focusCoord);
-            // 코어 substrate 에 등록한 IO 핸들(있으면 dispose 에서 해지). app.terminal.readBuffer/
-            // sendText 가 이 viewId(=paneId)로 이 터미널의 버퍼 읽기·입력 쓰기에 닿게 한다.
-            let ioReg: Disposable | null = null;
-            // 설정은 플러그인 소유(manifest config) — app.settings 에서 effective 값을 읽어 적용.
-            const readSettings = (): import("./terminal").TermSettings => {
-              const all = app.settings?.all?.() ?? {};
-              return {
-                fontFamily: all.fontFamily as string | undefined,
-                fontSize: all.fontSize as number | undefined,
-                scrollback: all.scrollback as number | undefined,
-                cursorBlink: all.cursorBlink as boolean | undefined,
-                cursorStyle: all.cursorStyle as
-                  | "block"
-                  | "underline"
-                  | "bar"
-                  | undefined,
-                xtermRenderer: all.xtermRenderer as "webgl" | "dom" | undefined,
-              };
-            };
-            // 셸 경로("" = 시스템 기본 $SHELL). spawn 시점 1회 적용(런타임 변경은 새 터미널부터).
-            const shell = (app.settings?.get?.("shell") as string | undefined) ?? "";
-            // 값 변경 시 라이브 재적용(폴링 없음). 해지는 dispose 에서.
-            const unSettings = app.settings?.onChange?.(() =>
-              termInst?.applySettings(readSettings()),
-            );
-
-            createTerminalInstance({
-              pty: app.pty,
-              // 복원 오케스트레이션(warm rehydrate·cold 봉인 읽기·degraded 고지)에 앱 표면을 넘긴다.
-              app,
-              // 복원 seam(B3): 재시작 복원이면 마지막 관찰 cwd 에서 시작(코어가 OSC 관찰값을
-              // 영속해 restore.cwd 로 전달). 새 뷰·값 없음 = 프로젝트 root(기존 동작).
-              cwd: vctx.restore?.cwd ?? vctx.root ?? undefined,
-              shell: shell || undefined,
-              // paneId = 이 콘텐츠 뷰의 안정 view.id. 코어가 SOKSAK_PANE 으로 주입하고, 관찰
-              // substrate(app.terminal.getCwd/onCwd/onCommandFinished·command.*/turn.ended)를
-              // 이 키로 묶는다 — cwd 추종 뷰(파일트리)가 같은 id 로 따라온다.
-              paneId: viewId,
-              // 에이전트 프로그램(claude/codex)의 자동 실행 명령 — 셸 프롬프트가 뜨면 PTY 가
-              // 버퍼한 입력을 처리한다(첫 pane 1회). 코어가 ContributedProgram.command 를
-              // PluginViewContext.command 로 흘려보낸다(뷰 종류 무관 채널 — 터미널만 실행).
-              initialCommand: vctx.command ?? undefined,
-              settings: readSettings(),
-            }).then((inst) => {
-              if (disposed) {
-                // unmount 가 spawn 보다 먼저 일어난 경우 — 즉시 정리.
-                inst.dispose().catch(() => {});
-                return;
-              }
-              termInst = inst;
-              // inst.element 에 data-node 가 이미 설정됨 (terminal.ts)
-              wrap.appendChild(inst.element);
-              // 렌더러 준비 완료 — 대기 중이던 포커스 요청이 있으면 코디네이터가 적용한다(창전환
-              // 포커스 팔로우).
-              focusCoord.attach({
-                focus: () => inst.focus(),
-                prepareFocusTransfer: () => inst.prepareFocusTransfer(),
-              });
-              registerTerminal(viewId, inst);
-              // app.terminal.readBuffer/sendText 가 이 터미널에 닿도록 IO 핸들 등록(키=viewId=paneId).
-              ioReg = app.pty?.registerIo?.(viewId, {
-                readBuffer: (lines?: number) => inst.readBuffer(lines),
-                sendInput: (data: string) => inst.sendInput(data),
-              }) ?? null;
-              // [단계①] 명령 블록 복원(R4) + 저장(R3) — "data" 권한 있을 때만. scope=projectId.
-              setupBlockPersistence(app, vctx, viewId, inst)
-                .then((d) => {
-                  if (d) ctx.subscriptions.push(d);
-                })
-                // 실패를 삼키지 않는다 — 권한 게이트 throw 가 조용히 증발해
-                // 블록 저장·복원 전체가 죽은 채 발견이 늦었던 실측 결함.
-                .catch((err: unknown) =>
-                  console.error("[terminal] 블록 영속 배선 실패:", err),
-                );
-              vctx.setStatus(null);
-              vctx.setTitle("Terminal");
-            }).catch((err: unknown) => {
-              if (!disposed) {
-                vctx.setStatus({ code: "error", message: String(err) });
-              }
-            });
-
-            // 언마운트 핸들러 — unmount() 에서 호출.
-            // termInst 를 직접 참조해 PTY 세션을 닫는다(레지스트리 경유 없음).
-            (wrap as unknown as Record<string, unknown>).__skTermDispose = async () => {
-              disposed = true;
-              focusCoord.detach();
-              unSettings?.dispose();
-              ioReg?.dispose(); // substrate IO 핸들 해지(누수 0)
-              ioReg = null;
-              unregisterTerminal(viewId);
-              if (termInst) {
-                await termInst.dispose().catch(() => {});
-                termInst = null;
-              }
-            };
-            (container as unknown as Record<string, unknown>).__skTermWrap = wrap;
+          mount(container, vctx) {
+            cleanups.set(container, mountTerminal(container, ctx, vctx));
           },
-
-          prepareFocusTransfer(container) {
-            focusStates.get(container)?.prepareTransfer();
+          unmount(container) {
+            cleanups.get(container)?.();
+            cleanups.delete(container);
           },
-
-          focus(container, _vctx, request) {
-            focusStates.get(container)?.request(request);
+          prepareFocusTransfer(_container, vctx) {
+            if (vctx.viewId) mounts.get(vctx.viewId)?.focus.prepareTransfer();
           },
-
-          unmount(container: HTMLElement) {
-            const wrap = (container as unknown as Record<string, unknown>).__skTermWrap as HTMLElement | undefined;
-            if (wrap) {
-              const fn = (wrap as unknown as Record<string, unknown>).__skTermDispose as (() => Promise<void>) | undefined;
-              fn?.().catch(() => {});
-              container.replaceChildren();
-              delete (container as unknown as Record<string, unknown>).__skTermWrap;
-            }
-            focusStates.delete(container);
+          focus(_container, vctx, request) {
+            if (vctx.viewId) mounts.get(vctx.viewId)?.focus.request(request);
           },
         }),
       );
     }
 
     registerCommands(ctx);
+
+    // split-pane — 뷰 내부를 pane 으로 쪼갠다(탭내 분할, splitMode=within-tab 인 뷰만 대상).
+    if (app.commands) {
+      ctx.subscriptions.push(
+        app.commands.register("split-pane", {
+          description:
+            "Split the terminal view into an internal pane (within-tab split; requires splitMode=within-tab).",
+          triggers: { ko: "터미널 탭내 분할 나누기" },
+          params: {
+            view: { type: "string", description: "Target view id (omit = first within-tab view)" },
+            dir: { type: "string", description: "'right' (default) or 'down'" },
+          },
+          returns: "{ ok, viewId?, paneId? }",
+          message: (d) => (d.ok ? `pane ${d.paneId} 을 분할했습니다.` : "분할 대상 없음"),
+          handler: async (p) => {
+            const viewId =
+              typeof p.view === "string" && p.view
+                ? p.view
+                : [...mounts].find(([, mm]) => mm.splitHost)?.[0];
+            const mm = viewId ? mounts.get(viewId) : undefined;
+            if (!mm?.splitHost) {
+              return {
+                ok: false,
+                code: "NO_TARGET",
+                message: "no within-tab split host (set splitMode=within-tab)",
+              };
+            }
+            const paneId = await mm.splitHost.split(p.dir === "down" ? "col" : "row");
+            return { ok: true, viewId, paneId };
+          },
+        }),
+      );
+    }
   },
 
   deactivate() {
     const s = document.getElementById("sk-terminal-style");
     if (s) s.remove();
+    for (const m of mounts.values()) {
+      void m.single?.dispose();
+      void m.splitHost?.dispose();
+    }
+    mounts.clear();
   },
 };

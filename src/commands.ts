@@ -5,14 +5,16 @@ import {
   registerTerminalCommands,
   createTerminalRegistry,
   type PluginContext,
+  type TerminalRenderer,
 } from "soksak-kit-terminal-common";
-import type { TerminalInstance } from "./terminal";
 
 // 이 플러그인의 활성 렌더러 레지스트리.
 const registry = createTerminalRegistry();
 
-export function registerTerminal(viewId: string, inst: TerminalInstance): void {
-  registry.set(viewId, inst);
+// 비분할=TerminalInstance, 탭내 분할=활성 pane 위임 프록시(둘 다 TerminalRenderer) — 명령이
+// 뷰 단위로 대상을 해소하되 within-tab 이면 활성 pane 에 닿는다.
+export function registerTerminal(viewId: string, r: TerminalRenderer): void {
+  registry.set(viewId, r);
 }
 export function unregisterTerminal(viewId: string): void {
   registry.delete(viewId);

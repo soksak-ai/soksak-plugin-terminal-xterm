@@ -14937,19 +14937,23 @@ function registerTerminalCommands(ctx, registry2) {
   if (!app.commands) return;
   const sub = (d2) => ctx.subscriptions.push(d2);
   const readHint = (d2, why) => d2.ok && typeof d2.viewId === "string" ? [{ cmd: `sok term.read '{"pane":"${d2.viewId}"}'`, why }] : [];
+  const VIEW_PARAM = {
+    view: { type: "string", description: "Target view id (omit = first active terminal)" }
+  };
   sub(
     app.commands.register("send", {
-      description: "Send text to the active terminal PTY.",
+      description: "Send text to a terminal PTY (target view, else the first active terminal).",
       triggers: { ko: "\uD130\uBBF8\uB110 \uD14D\uC2A4\uD2B8 \uC804\uC1A1 \uC785\uB825" },
       params: {
-        text: { type: "string", description: "Text to send to the terminal", required: true }
+        text: { type: "string", description: "Text to send to the terminal", required: true },
+        ...VIEW_PARAM
       },
       returns: "{ ok, viewId? }",
       message: () => "\uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.",
       // 전송은 즉시 돌아온다 — 출력은 잠시 후 그 터미널을 core term.read 로 확인한다(pane=이 viewId).
       hint: (d2) => readHint(d2, "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uCD9C\uB825\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
       handler: (p2) => {
-        const entry = registry2.first();
+        const entry = registry2.resolve(p2.view);
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.renderer.sendInput(String(p2.text ?? ""));
         return { ok: true, viewId: entry.viewId };
@@ -14958,12 +14962,13 @@ function registerTerminalCommands(ctx, registry2) {
   );
   sub(
     app.commands.register("clear", {
-      description: "Clear the active terminal screen.",
+      description: "Clear a terminal screen (target view, else the first active terminal).",
       triggers: { ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30 \uD074\uB9AC\uC5B4" },
+      params: { ...VIEW_PARAM },
       returns: "{ ok, viewId? }",
       message: () => "\uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4.",
-      handler: () => {
-        const entry = registry2.first();
+      handler: (p2) => {
+        const entry = registry2.resolve(p2.view);
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.renderer.clear();
         return { ok: true, viewId: entry.viewId };
@@ -14974,10 +14979,11 @@ function registerTerminalCommands(ctx, registry2) {
     app.commands.register("resume", {
       // [R9] 복원된 블록의 claude 세션을 이어간다 — 사용자 명시 액션만(auto-trigger 0). sessionId 는
       // UUID 화이트리스트로 엄격 검증해 위조 history·셸 injection 을 차단한다.
-      description: "Resume a tracked claude session in the active terminal by its sessionId. User-initiated only; the sessionId must be a valid UUID.",
+      description: "Resume a tracked claude session by its sessionId in a terminal (target view, else the first active). User-initiated only; the sessionId must be a valid UUID.",
       triggers: { ko: "\uC138\uC158 \uC774\uC5B4\uAC00\uAE30 \uC7AC\uAC1C resume" },
       params: {
-        session: { type: "string", description: "claude sessionId (UUID) to resume", required: true }
+        session: { type: "string", description: "claude sessionId (UUID) to resume", required: true },
+        ...VIEW_PARAM
       },
       returns: "{ ok, session, viewId? }",
       message: (d2) => `\uC138\uC158 ${d2.session} \uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.`,
@@ -14987,13 +14993,261 @@ function registerTerminalCommands(ctx, registry2) {
         if (!UUID_RE.test(sid)) {
           return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
         }
-        const entry = registry2.first();
+        const entry = registry2.resolve(p2.view);
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.renderer.sendInput(`claude --resume ${sid}\r`);
         return { ok: true, session: sid, viewId: entry.viewId };
       }
     })
   );
+}
+
+// ../../kits/soksak-kit-terminal-common/src/pane-split-tree.ts
+var leaf = (pane) => ({ type: "leaf", pane });
+var equalSizes = (n2) => Array.from({ length: n2 }, () => 1 / n2);
+function panesOf(node) {
+  return node.type === "leaf" ? [node.pane] : node.children.flatMap(panesOf);
+}
+function splitPane(node, target, newPane, dir, side, splitId) {
+  if (node.type === "leaf") {
+    if (node.pane !== target) return node;
+    const kids = side === "after" ? [node, leaf(newPane)] : [leaf(newPane), node];
+    return { type: "split", id: splitId, dir, sizes: equalSizes(2), children: kids };
+  }
+  if (node.dir === dir) {
+    const idx = node.children.findIndex((c2) => c2.type === "leaf" && c2.pane === target);
+    if (idx >= 0) {
+      const at4 = side === "after" ? idx + 1 : idx;
+      const children = [...node.children.slice(0, at4), leaf(newPane), ...node.children.slice(at4)];
+      return { ...node, sizes: equalSizes(children.length), children };
+    }
+  }
+  return { ...node, children: node.children.map((c2) => splitPane(c2, target, newPane, dir, side, splitId)) };
+}
+function removePane(node, pane) {
+  if (node.type === "leaf") return node.pane === pane ? null : node;
+  const kids = node.children.map((c2) => removePane(c2, pane)).filter((c2) => c2 !== null);
+  if (kids.length === 0) return null;
+  if (kids.length === 1) return kids[0];
+  return { ...node, sizes: equalSizes(kids.length), children: kids };
+}
+function resizeSplit(node, splitId, sizes) {
+  if (node.type === "leaf") return node;
+  if (node.id === splitId && sizes.length === node.children.length) return { ...node, sizes };
+  return { ...node, children: node.children.map((c2) => resizeSplit(c2, splitId, sizes)) };
+}
+
+// ../../kits/soksak-kit-terminal-common/src/pane-split.ts
+var DIVIDER_PX = 1;
+var DRAG_PAD = 4;
+var MIN_FRAC = 0.05;
+async function createPaneSplitHost(opts) {
+  const { container, createRenderer, mintPaneId, onEmpty } = opts;
+  const hosts = /* @__PURE__ */ new Map();
+  let tree;
+  let activePane = "";
+  const wrapHost = (paneId, r5) => {
+    const h2 = document.createElement("div");
+    h2.style.cssText = "position:relative;overflow:hidden;min-width:0;min-height:0;width:100%;height:100%";
+    h2.appendChild(r5.element);
+    const overlay = document.createElement("div");
+    overlay.dataset.paneOverlay = "1";
+    overlay.style.cssText = "position:absolute;inset:0;pointer-events:none;box-sizing:border-box;z-index:3;border:2px solid transparent;transition:border-color 0.1s";
+    h2.appendChild(overlay);
+    const activate = () => {
+      if (activePane === paneId) return;
+      activePane = paneId;
+      applyActiveStyle();
+    };
+    h2.addEventListener("focusin", activate, true);
+    h2.addEventListener("mousedown", activate, true);
+    return h2;
+  };
+  function applyActiveStyle() {
+    const multi = hosts.size > 1;
+    for (const [id, { host }] of hosts) {
+      const overlay = host.querySelector("[data-pane-overlay]");
+      if (overlay) {
+        overlay.style.borderColor = multi && id === activePane ? "var(--pane-active-color, rgba(96,165,250,0.9))" : "transparent";
+      }
+    }
+  }
+  const renderNode = (node) => {
+    if (node.type === "leaf") return hosts.get(node.pane).host;
+    const group = document.createElement("div");
+    const horizontal = node.dir === "row";
+    group.style.cssText = `display:flex;flex-direction:${horizontal ? "row" : "column"};width:100%;height:100%;min-width:0;min-height:0`;
+    const childEls = [];
+    node.children.forEach((child, i8) => {
+      if (i8 > 0) group.appendChild(makeDivider(node, i8, group, childEls));
+      const el2 = renderNode(child);
+      el2.style.flex = `${node.sizes[i8]} 1 0`;
+      childEls.push(el2);
+      group.appendChild(el2);
+    });
+    return group;
+  };
+  const render = () => {
+    container.replaceChildren(renderNode(tree));
+    for (const { renderer } of hosts.values()) renderer.fit();
+    applyActiveStyle();
+  };
+  const makeDivider = (node, gapIndex, group, childEls) => {
+    const horizontal = node.dir === "row";
+    const d2 = document.createElement("div");
+    const LINE = "var(--divider-line-color, rgba(128,128,128,0.35))";
+    const ACCENT = "var(--divider-hover-color, rgba(96,165,250,0.85))";
+    d2.style.cssText = `flex:0 0 ${DIVIDER_PX}px;position:relative;background:${LINE};transition:background 0.12s,box-shadow 0.12s;z-index:2`;
+    const hit = document.createElement("div");
+    hit.style.cssText = horizontal ? `position:absolute;top:0;bottom:0;left:-${DRAG_PAD}px;right:-${DRAG_PAD}px;cursor:col-resize` : `position:absolute;left:0;right:0;top:-${DRAG_PAD}px;bottom:-${DRAG_PAD}px;cursor:row-resize`;
+    d2.appendChild(hit);
+    let dragging = false;
+    const hl2 = (on3) => {
+      d2.style.background = on3 ? ACCENT : LINE;
+      d2.style.boxShadow = on3 ? `0 0 0 1.5px var(--divider-band-color, rgba(96,165,250,0.3))` : "none";
+    };
+    hit.addEventListener("mouseenter", () => hl2(true));
+    hit.addEventListener("mouseleave", () => {
+      if (!dragging) hl2(false);
+    });
+    hit.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      dragging = true;
+      hl2(true);
+      const rect = group.getBoundingClientRect();
+      const dividerCount = node.children.length - 1;
+      const flexible = (horizontal ? rect.width : rect.height) - dividerCount * DIVIDER_PX;
+      if (flexible <= 0) return;
+      const start = horizontal ? e.clientX : e.clientY;
+      const a = gapIndex - 1;
+      const b3 = gapIndex;
+      const readGrow = (el2) => parseFloat(el2.style.flex) || 0;
+      const next = childEls.map(readGrow);
+      const startA = next[a];
+      const startB = next[b3];
+      const prevUserSelect = document.body.style.userSelect;
+      document.body.style.userSelect = "none";
+      for (const { host } of hosts.values()) host.style.pointerEvents = "none";
+      let fitRaf = 0;
+      const scheduleFit = () => {
+        if (fitRaf) return;
+        fitRaf = requestAnimationFrame(() => {
+          fitRaf = 0;
+          for (const { renderer } of hosts.values()) renderer.fit();
+        });
+      };
+      const onMove = (ev) => {
+        const cur = horizontal ? ev.clientX : ev.clientY;
+        const df = (cur - start) / flexible;
+        const sa2 = startA + df;
+        const sb = startB - df;
+        if (sa2 < MIN_FRAC || sb < MIN_FRAC) return;
+        next[a] = sa2;
+        next[b3] = sb;
+        childEls[a].style.flex = `${sa2} 1 0`;
+        childEls[b3].style.flex = `${sb} 1 0`;
+        scheduleFit();
+      };
+      const onUp = () => {
+        window.removeEventListener("mousemove", onMove, true);
+        window.removeEventListener("mouseup", onUp, true);
+        if (fitRaf) cancelAnimationFrame(fitRaf);
+        document.body.style.userSelect = prevUserSelect;
+        for (const { host } of hosts.values()) host.style.pointerEvents = "";
+        dragging = false;
+        hl2(hit.matches(":hover"));
+        tree = resizeSplit(tree, node.id, next);
+        for (const { renderer } of hosts.values()) renderer.fit();
+      };
+      window.addEventListener("mousemove", onMove, true);
+      window.addEventListener("mouseup", onUp, true);
+    });
+    return d2;
+  };
+  const first = mintPaneId();
+  const r0 = await createRenderer(first);
+  hosts.set(first, { renderer: r0, host: wrapHost(first, r0) });
+  tree = leaf(first);
+  activePane = first;
+  render();
+  let splitSeq = 0;
+  return {
+    async split(dir) {
+      const target = hosts.has(activePane) ? activePane : panesOf(tree)[0];
+      const paneId = mintPaneId();
+      const r5 = await createRenderer(paneId);
+      hosts.set(paneId, { renderer: r5, host: wrapHost(paneId, r5) });
+      tree = splitPane(tree, target, paneId, dir, "after", `sp-${splitSeq++}`);
+      activePane = paneId;
+      render();
+      r5.focus();
+      return paneId;
+    },
+    async close(paneId) {
+      const entry = hosts.get(paneId);
+      if (!entry) return;
+      hosts.delete(paneId);
+      await entry.renderer.dispose().catch(() => {
+      });
+      const next = removePane(tree, paneId);
+      if (!next) {
+        onEmpty?.();
+        return;
+      }
+      tree = next;
+      if (activePane === paneId) activePane = panesOf(tree)[0] ?? "";
+      render();
+    },
+    active() {
+      const e = hosts.get(activePane);
+      return e ? { paneId: activePane, renderer: e.renderer } : null;
+    },
+    entries() {
+      return [...hosts.entries()].map(([id, e]) => [id, e.renderer]);
+    },
+    async dispose() {
+      for (const { renderer } of hosts.values()) await renderer.dispose().catch(() => {
+      });
+      hosts.clear();
+      container.replaceChildren();
+    }
+  };
+}
+
+// ../../kits/soksak-kit-terminal-common/src/active-pane-proxy.ts
+function createActivePaneProxy(host) {
+  const active = () => host.active()?.renderer;
+  const fallback = document.createElement("div");
+  return {
+    get element() {
+      return active()?.element ?? fallback;
+    },
+    get restorePainted() {
+      return active()?.restorePainted ?? false;
+    },
+    focus: () => active()?.focus(),
+    prepareFocusTransfer: () => active()?.prepareFocusTransfer(),
+    fit: () => active()?.fit(),
+    sendInput: (data) => active()?.sendInput(data),
+    readBuffer: (lines) => active()?.readBuffer(lines) ?? "",
+    write: (data) => active()?.write(data),
+    clear: () => active()?.clear(),
+    dispose: async () => {
+    },
+    // pane 수명은 split 호스트 소유 — 프록시는 아무것도 안 닫는다
+    paste: (text) => active()?.paste?.(text),
+    setScreenSuspended: (suspended) => active()?.setScreenSuspended?.(suspended),
+    applySettings: (settings) => active()?.applySettings?.(settings),
+    perfStats: () => {
+      const r5 = active();
+      if (!r5?.perfStats) throw new Error("no active pane");
+      return r5.perfStats();
+    },
+    echoProbe: () => {
+      const r5 = active();
+      return r5?.echoProbe ? r5.echoProbe() : Promise.reject(new Error("no active pane"));
+    }
+  };
 }
 
 // src/terminal.ts
@@ -15442,80 +15696,7 @@ async function createTerminalInstance(opts) {
   });
 }
 
-// src/commands.ts
-var registry = createTerminalRegistry();
-function registerTerminal(viewId, inst) {
-  registry.set(viewId, inst);
-}
-function unregisterTerminal(viewId) {
-  registry.delete(viewId);
-}
-function registerCommands(ctx) {
-  const app = ctx.app;
-  if (!app.commands) return;
-  const sub = (d2) => ctx.subscriptions.push(d2);
-  registerTerminalCommands(ctx, registry);
-  sub(
-    app.commands.register("ping", {
-      description: "Terminal plugin load/version check (E2E).",
-      triggers: { ko: "\uD130\uBBF8\uB110 \uD551 \uC801\uC7AC\uD655\uC778 \uBC84\uC804" },
-      returns: "{ ok, version }",
-      message: (d2) => `\uD130\uBBF8\uB110 \uD50C\uB7EC\uADF8\uC778 ${d2.version} \uC774 \uC801\uC7AC\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`,
-      handler: () => ({ ok: true, version: "0.1.0" })
-    })
-  );
-  sub(
-    app.commands.register("perf.stats", {
-      // 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만 한다(폴링 0).
-      // 하니스는 두 스냅샷의 차분으로 구간(throughput/파싱 백로그/프레임)을 계산한다.
-      description: "Read per-view terminal performance counters: {writtenBytes, ackSent, writeCbLagMs, rafFrameCount, webglActive, scrollbackRows}. Counters accumulate; diff two snapshots to measure an interval.",
-      triggers: { ko: "\uD130\uBBF8\uB110 \uC131\uB2A5 \uCE74\uC6B4\uD130 \uACC4\uCE21 \uD1B5\uACC4" },
-      params: {
-        view: { type: "string", description: "Target view id (omit = all active terminals)" }
-      },
-      returns: "{ ok, views: { [viewId]: stats } }",
-      message: (d2) => `\uD130\uBBF8\uB110 \uC131\uB2A5 \uCE74\uC6B4\uD130 ${Object.keys(d2.views ?? {}).length}\uAC1C \uBDF0\uB97C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4.`,
-      handler: (p2) => {
-        const views = {};
-        if (typeof p2.view === "string" && p2.view) {
-          const r5 = registry.get(p2.view);
-          if (!r5?.perfStats) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p2.view}` };
-          views[p2.view] = r5.perfStats();
-        } else {
-          for (const [viewId, r5] of registry.entries()) {
-            if (r5.perfStats) views[viewId] = r5.perfStats();
-          }
-        }
-        return { ok: true, views };
-      }
-    })
-  );
-  sub(
-    app.commands.register("perf.echo", {
-      // t2-L1 입력 레이턴시 프로브: PTY 에 무해 입력(" "+DEL)을 쓰고 다음 출력(onData) 도착까지의
-      // 왕복(ms). 측정점 = 플러그인 write→PTY→에코 수신 — 소켓 RPC·페인트는 포함하지 않는다.
-      description: "Measure one input\u2192echo roundtrip (ms): write a harmless probe to the PTY and time the next output arrival. Excludes socket RPC and paint. Run at a quiet shell prompt.",
-      triggers: { ko: "\uD130\uBBF8\uB110 \uC5D0\uCF54 \uC655\uBCF5 \uB808\uC774\uD134\uC2DC \uD504\uB85C\uBE0C" },
-      params: {
-        view: { type: "string", description: "Target view id (omit = first active terminal)" }
-      },
-      returns: "{ ok, viewId, roundtripMs }",
-      message: (d2) => `\uC785\uB825\u2192\uC5D0\uCF54 \uC655\uBCF5 ${d2.roundtripMs}ms (${d2.viewId}).`,
-      handler: async (p2) => {
-        const entry = registry.resolve(p2.view);
-        if (!entry?.renderer.echoProbe) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        try {
-          const roundtripMs = await entry.renderer.echoProbe();
-          return { ok: true, viewId: entry.viewId, roundtripMs };
-        } catch (err) {
-          return { ok: false, code: "TIMEOUT", message: String(err) };
-        }
-      }
-    })
-  );
-}
-
-// src/plugin-entry.ts
+// src/command-block-persistence.ts
 var BLOCKS_COLL = "command_blocks";
 var RESTORE_N = 50;
 var RETAIN_CAP = 1e3;
@@ -15617,6 +15798,222 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
     }
   };
 }
+
+// src/mount-pane.ts
+function readSettings(app) {
+  const all = app.settings?.all?.() ?? {};
+  return {
+    fontFamily: all.fontFamily,
+    fontSize: all.fontSize,
+    scrollback: all.scrollback,
+    cursorBlink: all.cursorBlink,
+    cursorStyle: all.cursorStyle,
+    xtermRenderer: all.xtermRenderer
+  };
+}
+async function mountPane(app, opts) {
+  if (!app.pty) throw new Error("pty permission not granted");
+  const shell = app.settings?.get?.("shell") ?? "";
+  const inst = await createTerminalInstance({
+    pty: app.pty,
+    app,
+    cwd: opts.cwd,
+    shell: shell || void 0,
+    paneId: opts.paneId,
+    initialCommand: opts.initialCommand,
+    settings: readSettings(app)
+  });
+  const extra = [];
+  const unSettings = app.settings?.onChange?.(() => inst.applySettings(readSettings(app)));
+  if (unSettings) extra.push(unSettings);
+  const blockDisp = await setupBlockPersistence(app, opts.vctx, opts.paneId, inst).catch(
+    (err) => {
+      console.error("[terminal] \uBE14\uB85D \uC601\uC18D \uBC30\uC120 \uC2E4\uD328:", err);
+      return null;
+    }
+  );
+  if (blockDisp) extra.push(blockDisp);
+  const origDispose = inst.dispose.bind(inst);
+  inst.dispose = async () => {
+    for (const d2 of extra) {
+      try {
+        d2.dispose();
+      } catch {
+      }
+    }
+    await origDispose();
+  };
+  return inst;
+}
+
+// src/commands.ts
+var registry = createTerminalRegistry();
+function registerTerminal(viewId, r5) {
+  registry.set(viewId, r5);
+}
+function unregisterTerminal(viewId) {
+  registry.delete(viewId);
+}
+function registerCommands(ctx) {
+  const app = ctx.app;
+  if (!app.commands) return;
+  const sub = (d2) => ctx.subscriptions.push(d2);
+  registerTerminalCommands(ctx, registry);
+  sub(
+    app.commands.register("ping", {
+      description: "Terminal plugin load/version check (E2E).",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uD551 \uC801\uC7AC\uD655\uC778 \uBC84\uC804" },
+      returns: "{ ok, version }",
+      message: (d2) => `\uD130\uBBF8\uB110 \uD50C\uB7EC\uADF8\uC778 ${d2.version} \uC774 \uC801\uC7AC\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`,
+      handler: () => ({ ok: true, version: "0.1.0" })
+    })
+  );
+  sub(
+    app.commands.register("perf.stats", {
+      // 성능 관찰면(pull) — 카운터는 onData/ACK/write 콜백/onRender 에서 정수 가산만 한다(폴링 0).
+      // 하니스는 두 스냅샷의 차분으로 구간(throughput/파싱 백로그/프레임)을 계산한다.
+      description: "Read per-view terminal performance counters: {writtenBytes, ackSent, writeCbLagMs, rafFrameCount, webglActive, scrollbackRows}. Counters accumulate; diff two snapshots to measure an interval.",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uC131\uB2A5 \uCE74\uC6B4\uD130 \uACC4\uCE21 \uD1B5\uACC4" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = all active terminals)" }
+      },
+      returns: "{ ok, views: { [viewId]: stats } }",
+      message: (d2) => `\uD130\uBBF8\uB110 \uC131\uB2A5 \uCE74\uC6B4\uD130 ${Object.keys(d2.views ?? {}).length}\uAC1C \uBDF0\uB97C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4.`,
+      handler: (p2) => {
+        const views = {};
+        if (typeof p2.view === "string" && p2.view) {
+          const r5 = registry.get(p2.view);
+          if (!r5?.perfStats) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p2.view}` };
+          views[p2.view] = r5.perfStats();
+        } else {
+          for (const [viewId, r5] of registry.entries()) {
+            if (r5.perfStats) views[viewId] = r5.perfStats();
+          }
+        }
+        return { ok: true, views };
+      }
+    })
+  );
+  sub(
+    app.commands.register("perf.echo", {
+      // t2-L1 입력 레이턴시 프로브: PTY 에 무해 입력(" "+DEL)을 쓰고 다음 출력(onData) 도착까지의
+      // 왕복(ms). 측정점 = 플러그인 write→PTY→에코 수신 — 소켓 RPC·페인트는 포함하지 않는다.
+      description: "Measure one input\u2192echo roundtrip (ms): write a harmless probe to the PTY and time the next output arrival. Excludes socket RPC and paint. Run at a quiet shell prompt.",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uC5D0\uCF54 \uC655\uBCF5 \uB808\uC774\uD134\uC2DC \uD504\uB85C\uBE0C" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = first active terminal)" }
+      },
+      returns: "{ ok, viewId, roundtripMs }",
+      message: (d2) => `\uC785\uB825\u2192\uC5D0\uCF54 \uC655\uBCF5 ${d2.roundtripMs}ms (${d2.viewId}).`,
+      handler: async (p2) => {
+        const entry = registry.resolve(p2.view);
+        if (!entry?.renderer.echoProbe) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        try {
+          const roundtripMs = await entry.renderer.echoProbe();
+          return { ok: true, viewId: entry.viewId, roundtripMs };
+        } catch (err) {
+          return { ok: false, code: "TIMEOUT", message: String(err) };
+        }
+      }
+    })
+  );
+}
+
+// src/plugin-entry.ts
+var mounts = /* @__PURE__ */ new Map();
+function mountTerminal(container, ctx, vctx) {
+  const app = ctx.app;
+  container.style.position = "relative";
+  container.style.overflow = "hidden";
+  const wrap = document.createElement("div");
+  wrap.className = "sk-term-wrap";
+  wrap.style.cssText = "position:absolute;inset:0;";
+  container.appendChild(wrap);
+  const viewId = vctx.viewId ?? `term-${Date.now()}`;
+  vctx.setTitle("Terminal");
+  vctx.setStatus({ code: "connecting", message: "Starting\u2026" });
+  if (!app.pty) {
+    vctx.setStatus({ code: "error", message: "pty permission not granted" });
+    return () => {
+    };
+  }
+  const m2 = {
+    focus: createFocusCoordinator(),
+    single: null,
+    splitHost: null,
+    io: null,
+    disposed: false
+  };
+  mounts.set(viewId, m2);
+  const cwd = vctx.restore?.cwd ?? vctx.root ?? void 0;
+  const withinTab = String(app.settings?.get?.("splitMode") ?? "tab") === "within-tab";
+  const fail = (err) => {
+    if (!m2.disposed) vctx.setStatus({ code: "error", message: String(err) });
+  };
+  if (withinTab) {
+    let seq = 0;
+    let first = true;
+    void createPaneSplitHost({
+      container: wrap,
+      mintPaneId: () => `${viewId}~${seq++}`,
+      createRenderer: async (paneId) => {
+        const r5 = await mountPane(app, {
+          vctx,
+          paneId,
+          cwd,
+          initialCommand: first ? vctx.command ?? void 0 : void 0
+        });
+        first = false;
+        return r5;
+      },
+      onEmpty: () => vctx.setStatus({ code: "error", message: "\uBE48 \uBDF0 \u2014 \uB9C8\uC9C0\uB9C9 pane \uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4" })
+    }).then((h2) => {
+      if (m2.disposed) {
+        void h2.dispose();
+        return;
+      }
+      m2.splitHost = h2;
+      m2.io = app.pty?.registerIo?.(viewId, {
+        readBuffer: (lines) => h2.active()?.renderer.readBuffer(lines) ?? "",
+        sendInput: (data) => h2.active()?.renderer.sendInput(data)
+      }) ?? null;
+      m2.focus.attach({
+        focus: () => h2.active()?.renderer.focus(),
+        prepareFocusTransfer: () => h2.active()?.renderer.prepareFocusTransfer()
+      });
+      registerTerminal(viewId, createActivePaneProxy(h2));
+      vctx.setStatus(null);
+    }).catch(fail);
+    return () => cleanup(m2, viewId, container);
+  }
+  void mountPane(app, { vctx, paneId: viewId, cwd, initialCommand: vctx.command ?? void 0 }).then((inst) => {
+    if (m2.disposed) {
+      void inst.dispose();
+      return;
+    }
+    m2.single = inst;
+    wrap.appendChild(inst.element);
+    m2.io = app.pty?.registerIo?.(viewId, {
+      readBuffer: (lines) => inst.readBuffer(lines),
+      sendInput: (data) => inst.sendInput(data)
+    }) ?? null;
+    m2.focus.attach({ focus: () => inst.focus(), prepareFocusTransfer: () => inst.prepareFocusTransfer() });
+    registerTerminal(viewId, inst);
+    vctx.setStatus(null);
+    vctx.setTitle("Terminal");
+  }).catch(fail);
+  return () => cleanup(m2, viewId, container);
+}
+function cleanup(m2, viewId, container) {
+  m2.disposed = true;
+  m2.focus.detach();
+  m2.io?.dispose();
+  void m2.single?.dispose();
+  void m2.splitHost?.dispose();
+  unregisterTerminal(viewId);
+  mounts.delete(viewId);
+  container.replaceChildren();
+}
 var plugin_entry_default = {
   activate(ctx) {
     const app = ctx.app;
@@ -15644,129 +16041,62 @@ var plugin_entry_default = {
       })
     );
     if (app.ui?.registerView) {
-      const focusStates = /* @__PURE__ */ new WeakMap();
+      const cleanups = /* @__PURE__ */ new WeakMap();
       ctx.subscriptions.push(
         app.ui.registerView("content", {
           mount(container, vctx) {
-            container.style.position = "relative";
-            container.style.overflow = "hidden";
-            const wrap = document.createElement("div");
-            wrap.className = "sk-term-wrap";
-            wrap.style.cssText = "position:absolute;inset:0;";
-            container.appendChild(wrap);
-            const viewId = vctx.viewId ?? `term-${Date.now()}`;
-            vctx.setTitle("Terminal");
-            vctx.setStatus({ code: "connecting", message: "Starting\u2026" });
-            if (!app.pty) {
-              vctx.setStatus({ code: "error", message: "pty permission not granted" });
-              return;
-            }
-            let disposed = false;
-            let termInst = null;
-            const focusCoord = createFocusCoordinator();
-            focusStates.set(container, focusCoord);
-            let ioReg = null;
-            const readSettings = () => {
-              const all = app.settings?.all?.() ?? {};
-              return {
-                fontFamily: all.fontFamily,
-                fontSize: all.fontSize,
-                scrollback: all.scrollback,
-                cursorBlink: all.cursorBlink,
-                cursorStyle: all.cursorStyle,
-                xtermRenderer: all.xtermRenderer
-              };
-            };
-            const shell = app.settings?.get?.("shell") ?? "";
-            const unSettings = app.settings?.onChange?.(
-              () => termInst?.applySettings(readSettings())
-            );
-            createTerminalInstance({
-              pty: app.pty,
-              // 복원 오케스트레이션(warm rehydrate·cold 봉인 읽기·degraded 고지)에 앱 표면을 넘긴다.
-              app,
-              // 복원 seam(B3): 재시작 복원이면 마지막 관찰 cwd 에서 시작(코어가 OSC 관찰값을
-              // 영속해 restore.cwd 로 전달). 새 뷰·값 없음 = 프로젝트 root(기존 동작).
-              cwd: vctx.restore?.cwd ?? vctx.root ?? void 0,
-              shell: shell || void 0,
-              // paneId = 이 콘텐츠 뷰의 안정 view.id. 코어가 SOKSAK_PANE 으로 주입하고, 관찰
-              // substrate(app.terminal.getCwd/onCwd/onCommandFinished·command.*/turn.ended)를
-              // 이 키로 묶는다 — cwd 추종 뷰(파일트리)가 같은 id 로 따라온다.
-              paneId: viewId,
-              // 에이전트 프로그램(claude/codex)의 자동 실행 명령 — 셸 프롬프트가 뜨면 PTY 가
-              // 버퍼한 입력을 처리한다(첫 pane 1회). 코어가 ContributedProgram.command 를
-              // PluginViewContext.command 로 흘려보낸다(뷰 종류 무관 채널 — 터미널만 실행).
-              initialCommand: vctx.command ?? void 0,
-              settings: readSettings()
-            }).then((inst) => {
-              if (disposed) {
-                inst.dispose().catch(() => {
-                });
-                return;
-              }
-              termInst = inst;
-              wrap.appendChild(inst.element);
-              focusCoord.attach({
-                focus: () => inst.focus(),
-                prepareFocusTransfer: () => inst.prepareFocusTransfer()
-              });
-              registerTerminal(viewId, inst);
-              ioReg = app.pty?.registerIo?.(viewId, {
-                readBuffer: (lines) => inst.readBuffer(lines),
-                sendInput: (data) => inst.sendInput(data)
-              }) ?? null;
-              setupBlockPersistence(app, vctx, viewId, inst).then((d2) => {
-                if (d2) ctx.subscriptions.push(d2);
-              }).catch(
-                (err) => console.error("[terminal] \uBE14\uB85D \uC601\uC18D \uBC30\uC120 \uC2E4\uD328:", err)
-              );
-              vctx.setStatus(null);
-              vctx.setTitle("Terminal");
-            }).catch((err) => {
-              if (!disposed) {
-                vctx.setStatus({ code: "error", message: String(err) });
-              }
-            });
-            wrap.__skTermDispose = async () => {
-              disposed = true;
-              focusCoord.detach();
-              unSettings?.dispose();
-              ioReg?.dispose();
-              ioReg = null;
-              unregisterTerminal(viewId);
-              if (termInst) {
-                await termInst.dispose().catch(() => {
-                });
-                termInst = null;
-              }
-            };
-            container.__skTermWrap = wrap;
-          },
-          prepareFocusTransfer(container) {
-            focusStates.get(container)?.prepareTransfer();
-          },
-          focus(container, _vctx, request) {
-            focusStates.get(container)?.request(request);
+            cleanups.set(container, mountTerminal(container, ctx, vctx));
           },
           unmount(container) {
-            const wrap = container.__skTermWrap;
-            if (wrap) {
-              const fn3 = wrap.__skTermDispose;
-              fn3?.().catch(() => {
-              });
-              container.replaceChildren();
-              delete container.__skTermWrap;
-            }
-            focusStates.delete(container);
+            cleanups.get(container)?.();
+            cleanups.delete(container);
+          },
+          prepareFocusTransfer(_container, vctx) {
+            if (vctx.viewId) mounts.get(vctx.viewId)?.focus.prepareTransfer();
+          },
+          focus(_container, vctx, request) {
+            if (vctx.viewId) mounts.get(vctx.viewId)?.focus.request(request);
           }
         })
       );
     }
     registerCommands(ctx);
+    if (app.commands) {
+      ctx.subscriptions.push(
+        app.commands.register("split-pane", {
+          description: "Split the terminal view into an internal pane (within-tab split; requires splitMode=within-tab).",
+          triggers: { ko: "\uD130\uBBF8\uB110 \uD0ED\uB0B4 \uBD84\uD560 \uB098\uB204\uAE30" },
+          params: {
+            view: { type: "string", description: "Target view id (omit = first within-tab view)" },
+            dir: { type: "string", description: "'right' (default) or 'down'" }
+          },
+          returns: "{ ok, viewId?, paneId? }",
+          message: (d2) => d2.ok ? `pane ${d2.paneId} \uC744 \uBD84\uD560\uD588\uC2B5\uB2C8\uB2E4.` : "\uBD84\uD560 \uB300\uC0C1 \uC5C6\uC74C",
+          handler: async (p2) => {
+            const viewId = typeof p2.view === "string" && p2.view ? p2.view : [...mounts].find(([, mm2]) => mm2.splitHost)?.[0];
+            const mm = viewId ? mounts.get(viewId) : void 0;
+            if (!mm?.splitHost) {
+              return {
+                ok: false,
+                code: "NO_TARGET",
+                message: "no within-tab split host (set splitMode=within-tab)"
+              };
+            }
+            const paneId = await mm.splitHost.split(p2.dir === "down" ? "col" : "row");
+            return { ok: true, viewId, paneId };
+          }
+        })
+      );
+    }
   },
   deactivate() {
     const s15 = document.getElementById("sk-terminal-style");
     if (s15) s15.remove();
+    for (const m2 of mounts.values()) {
+      void m2.single?.dispose();
+      void m2.splitHost?.dispose();
+    }
+    mounts.clear();
   }
 };
 export {

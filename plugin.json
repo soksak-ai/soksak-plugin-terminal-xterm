@@ -137,6 +137,33 @@
         "ko": "커서 모양",
         "en": "Cursor style"
       }
+    },
+    {
+      "key": "splitMode",
+      "type": "enum",
+      "default": "tab",
+      "title": {
+        "ko": "분할 방식",
+        "en": "Split mode"
+      },
+      "description": {
+        "ko": "터미널 분할을 탭(별도 패널)으로 할지 탭 내부(뷰 안 pane)로 할지.",
+        "en": "Whether a terminal split makes a new tab (panel) or an internal pane within the view."
+      },
+      "enum": [
+        "tab",
+        "within-tab"
+      ],
+      "enumLabels": [
+        {
+          "ko": "탭 분할",
+          "en": "Tab split"
+        },
+        {
+          "ko": "탭 내 분할",
+          "en": "Within-tab split"
+        }
+      ]
     }
   ],
   "contributes": {
@@ -210,6 +237,13 @@
         "title": {
           "ko": "입력 에코 왕복 측정",
           "en": "Measure Input Echo Roundtrip"
+        }
+      },
+      {
+        "name": "split-pane",
+        "title": {
+          "ko": "탭 내 분할",
+          "en": "Split Pane (Within-Tab)"
         }
       }
     ],
