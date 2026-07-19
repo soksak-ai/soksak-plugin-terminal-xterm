@@ -245,6 +245,13 @@
           "ko": "탭 내 분할",
           "en": "Split Pane (Within-Tab)"
         }
+      },
+      {
+        "name": "close-pane",
+        "title": {
+          "ko": "탭 내 pane 닫기",
+          "en": "Close Pane (Within-Tab)"
+        }
       }
     ],
     "nodes": [
