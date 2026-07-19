@@ -15052,6 +15052,15 @@ var equalSizes = (n2) => Array.from({ length: n2 }, () => 1 / n2);
 function panesOf(node) {
   return node.type === "leaf" ? [node.pane] : node.children.flatMap(panesOf);
 }
+function isPaneTree(value) {
+  if (!value || typeof value !== "object") return false;
+  const n2 = value;
+  if (n2.type === "leaf") return typeof n2.pane === "string" && n2.pane.length > 0;
+  if (n2.type === "split") {
+    return typeof n2.id === "string" && (n2.dir === "row" || n2.dir === "col") && Array.isArray(n2.sizes) && n2.sizes.every((s15) => typeof s15 === "number") && Array.isArray(n2.children) && n2.children.length >= 2 && n2.sizes.length === n2.children.length && n2.children.every(isPaneTree);
+  }
+  return false;
+}
 function splitPane(node, target, newPane, dir, side, splitId) {
   if (node.type === "leaf") {
     if (node.pane !== target) return node;
@@ -15086,10 +15095,11 @@ var DIVIDER_PX = 1;
 var DRAG_PAD = 4;
 var MIN_FRAC = 0.05;
 async function createPaneSplitHost(opts) {
-  const { container, createRenderer, mintPaneId, onEmpty } = opts;
+  const { container, createRenderer, mintPaneId, onEmpty, restore, onChange } = opts;
   const hosts = /* @__PURE__ */ new Map();
   let tree;
   let activePane = "";
+  const emitChange = () => onChange?.(tree);
   const wrapHost = (paneId, r5) => {
     const h2 = document.createElement("div");
     h2.style.cssText = "position:relative;overflow:hidden;min-width:0;min-height:0;width:100%;height:100%";
@@ -15202,17 +15212,28 @@ async function createPaneSplitHost(opts) {
         hl2(hit.matches(":hover"));
         tree = resizeSplit(tree, node.id, next);
         for (const { renderer } of hosts.values()) renderer.fit();
+        emitChange();
       };
       window.addEventListener("mousemove", onMove, true);
       window.addEventListener("mouseup", onUp, true);
     });
     return d2;
   };
-  const first = mintPaneId();
-  const r0 = await createRenderer(first);
-  hosts.set(first, { renderer: r0, host: wrapHost(first, r0) });
-  tree = leaf(first);
-  activePane = first;
+  const restorePanes = restore ? panesOf(restore) : [];
+  if (restore && restorePanes.length > 0) {
+    for (const paneId of restorePanes) {
+      const r5 = await createRenderer(paneId);
+      hosts.set(paneId, { renderer: r5, host: wrapHost(paneId, r5) });
+    }
+    tree = restore;
+    activePane = restorePanes[0];
+  } else {
+    const first = mintPaneId();
+    const r0 = await createRenderer(first);
+    hosts.set(first, { renderer: r0, host: wrapHost(first, r0) });
+    tree = leaf(first);
+    activePane = first;
+  }
   render();
   let splitSeq = 0;
   return {
@@ -15224,6 +15245,7 @@ async function createPaneSplitHost(opts) {
       tree = splitPane(tree, target, paneId, dir, "after", `sp-${splitSeq++}`);
       activePane = paneId;
       render();
+      emitChange();
       r5.focus();
       return paneId;
     },
@@ -15241,6 +15263,7 @@ async function createPaneSplitHost(opts) {
       tree = next;
       if (activePane === paneId) activePane = panesOf(tree)[0] ?? "";
       render();
+      emitChange();
     },
     active() {
       const e = hosts.get(activePane);
@@ -15248,6 +15271,9 @@ async function createPaneSplitHost(opts) {
     },
     entries() {
       return [...hosts.entries()].map(([id, e]) => [id, e.renderer]);
+    },
+    snapshot() {
+      return tree;
     },
     async dispose() {
       for (const { renderer } of hosts.values()) await renderer.dispose().catch(() => {
@@ -15295,6 +15321,16 @@ function createActivePaneProxy(host) {
 }
 
 // ../../kits/soksak-kit-terminal-common/src/mount-terminal-view.ts
+function nextSeqAfter(viewId, tree) {
+  const prefix = `${viewId}~`;
+  let max = -1;
+  for (const pane of panesOf(tree)) {
+    if (!pane.startsWith(prefix)) continue;
+    const n2 = Number(pane.slice(prefix.length));
+    if (Number.isInteger(n2) && n2 > max) max = n2;
+  }
+  return max + 1;
+}
 function mountTerminalView(app, opts) {
   const { mountRoot, viewId, withinTab, focus, registry, createRenderer, setStatus, emptyMessage } = opts;
   const state = {
@@ -15307,29 +15343,36 @@ function mountTerminalView(app, opts) {
     if (!state.disposed) setStatus({ code: "error", message: String(err) });
   };
   if (withinTab) {
-    let seq = 0;
-    let first = true;
-    void createPaneSplitHost({
-      container: mountRoot,
-      mintPaneId: () => `${viewId}~${seq++}`,
-      createRenderer: async (paneId) => {
-        const r5 = await createRenderer(paneId, first);
-        first = false;
-        const paneIo = app.pty?.registerIo?.(paneId, {
-          readBuffer: (lines) => r5.readBuffer(lines),
-          sendInput: (data) => r5.sendInput(data)
-        });
-        if (paneIo) {
-          const origDispose = r5.dispose.bind(r5);
-          r5.dispose = async () => {
-            paneIo.dispose();
-            await origDispose();
-          };
+    void (async () => {
+      const restore = opts.treeStore ? await opts.treeStore.load() : null;
+      let seq = restore ? nextSeqAfter(viewId, restore) : 0;
+      let first = !restore;
+      const h2 = await createPaneSplitHost({
+        container: mountRoot,
+        mintPaneId: () => `${viewId}~${seq++}`,
+        restore: restore ?? void 0,
+        onChange: (tree) => opts.treeStore?.save(tree),
+        createRenderer: async (paneId) => {
+          const r5 = await createRenderer(paneId, first);
+          first = false;
+          const paneIo = app.pty?.registerIo?.(paneId, {
+            readBuffer: (lines) => r5.readBuffer(lines),
+            sendInput: (data) => r5.sendInput(data)
+          });
+          if (paneIo) {
+            const origDispose = r5.dispose.bind(r5);
+            r5.dispose = async () => {
+              paneIo.dispose();
+              await origDispose();
+            };
+          }
+          return r5;
+        },
+        onEmpty: () => {
+          opts.treeStore?.clear();
+          setStatus({ code: "error", message: emptyMessage });
         }
-        return r5;
-      },
-      onEmpty: () => setStatus({ code: "error", message: emptyMessage })
-    }).then((h2) => {
+      });
       if (state.disposed) {
         void h2.dispose();
         return;
@@ -15345,7 +15388,7 @@ function mountTerminalView(app, opts) {
       });
       registry.set(viewId, createActivePaneProxy(h2));
       setStatus(null);
-    }).catch(fail);
+    })().catch(fail);
   } else {
     void createRenderer(viewId, true).then((r5) => {
       if (state.disposed) {
@@ -15374,6 +15417,34 @@ function mountTerminalView(app, opts) {
       void state.single?.dispose();
       void state.splitHost?.dispose();
       registry.delete(viewId);
+    }
+  };
+}
+
+// ../../kits/soksak-kit-terminal-common/src/pane-tree-store.ts
+function createPaneTreeStore(kv, viewId) {
+  const key = `paneTree:${viewId}`;
+  return {
+    async load() {
+      try {
+        const value = await kv.get(key);
+        return isPaneTree(value) ? value : null;
+      } catch {
+        return null;
+      }
+    },
+    save(tree) {
+      if (tree.type === "leaf") {
+        void kv.delete(key).catch(() => {
+        });
+        return;
+      }
+      void kv.set(key, tree).catch(() => {
+      });
+    },
+    clear() {
+      void kv.delete(key).catch(() => {
+      });
     }
   };
 }
@@ -16061,6 +16132,7 @@ function mountTerminal(container, ctx, vctx) {
   }
   const cwd = vctx.restore?.cwd ?? vctx.root ?? void 0;
   const withinTab = String(app.settings?.get?.("splitMode") ?? "tab") === "within-tab";
+  const treeStore = withinTab && app.data?.kv ? createPaneTreeStore(app.data.kv, viewId) : void 0;
   const focus = createFocusCoordinator();
   const handle = mountTerminalView(app, {
     mountRoot: wrap,
@@ -16068,6 +16140,7 @@ function mountTerminal(container, ctx, vctx) {
     withinTab,
     focus,
     registry: terminalRegistry,
+    treeStore,
     // pane 마다 xterm 인스턴스 + 이 pane 의 블록 이력. 첫 pane 만 initialCommand(에이전트 자동 실행).
     createRenderer: (paneId, isFirst) => mountPane(app, {
       vctx,
