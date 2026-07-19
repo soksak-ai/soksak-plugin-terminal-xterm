@@ -14907,6 +14907,95 @@ function terminalFinishedActivity(exitCode, lang) {
   };
 }
 
+// ../../kits/soksak-kit-terminal-common/src/terminal-registry.ts
+function createTerminalRegistry() {
+  const map = /* @__PURE__ */ new Map();
+  const first = () => {
+    const e = map.entries().next();
+    return e.done ? null : { viewId: e.value[0], renderer: e.value[1] };
+  };
+  return {
+    set: (id, r5) => void map.set(id, r5),
+    delete: (id) => void map.delete(id),
+    get: (id) => map.get(id),
+    entries: () => [...map.entries()],
+    first,
+    resolve: (view) => {
+      if (typeof view === "string" && view) {
+        const r5 = map.get(view);
+        return r5 ? { viewId: view, renderer: r5 } : null;
+      }
+      return first();
+    }
+  };
+}
+
+// ../../kits/soksak-kit-terminal-common/src/commands.ts
+var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function registerTerminalCommands(ctx, registry2) {
+  const app = ctx.app;
+  if (!app.commands) return;
+  const sub = (d2) => ctx.subscriptions.push(d2);
+  const readHint = (d2, why) => d2.ok && typeof d2.viewId === "string" ? [{ cmd: `sok term.read '{"pane":"${d2.viewId}"}'`, why }] : [];
+  sub(
+    app.commands.register("send", {
+      description: "Send text to the active terminal PTY.",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uD14D\uC2A4\uD2B8 \uC804\uC1A1 \uC785\uB825" },
+      params: {
+        text: { type: "string", description: "Text to send to the terminal", required: true }
+      },
+      returns: "{ ok, viewId? }",
+      message: () => "\uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.",
+      // 전송은 즉시 돌아온다 — 출력은 잠시 후 그 터미널을 core term.read 로 확인한다(pane=이 viewId).
+      hint: (d2) => readHint(d2, "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uCD9C\uB825\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
+      handler: (p2) => {
+        const entry = registry2.first();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.renderer.sendInput(String(p2.text ?? ""));
+        return { ok: true, viewId: entry.viewId };
+      }
+    })
+  );
+  sub(
+    app.commands.register("clear", {
+      description: "Clear the active terminal screen.",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30 \uD074\uB9AC\uC5B4" },
+      returns: "{ ok, viewId? }",
+      message: () => "\uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4.",
+      handler: () => {
+        const entry = registry2.first();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.renderer.clear();
+        return { ok: true, viewId: entry.viewId };
+      }
+    })
+  );
+  sub(
+    app.commands.register("resume", {
+      // [R9] 복원된 블록의 claude 세션을 이어간다 — 사용자 명시 액션만(auto-trigger 0). sessionId 는
+      // UUID 화이트리스트로 엄격 검증해 위조 history·셸 injection 을 차단한다.
+      description: "Resume a tracked claude session in the active terminal by its sessionId. User-initiated only; the sessionId must be a valid UUID.",
+      triggers: { ko: "\uC138\uC158 \uC774\uC5B4\uAC00\uAE30 \uC7AC\uAC1C resume" },
+      params: {
+        session: { type: "string", description: "claude sessionId (UUID) to resume", required: true }
+      },
+      returns: "{ ok, session, viewId? }",
+      message: (d2) => `\uC138\uC158 ${d2.session} \uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.`,
+      hint: (d2) => readHint(d2, "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uC774\uC5B4\uC9C4 \uC138\uC158\uC758 \uC751\uB2F5\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
+      handler: (p2) => {
+        const sid = String(p2.session ?? "").trim();
+        if (!UUID_RE.test(sid)) {
+          return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
+        }
+        const entry = registry2.first();
+        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        entry.renderer.sendInput(`claude --resume ${sid}\r`);
+        return { ok: true, session: sid, viewId: entry.viewId };
+      }
+    })
+  );
+}
+
 // src/terminal.ts
 var FLOW_ACK_SIZE = 5e3;
 async function createTerminal(options) {
@@ -15354,28 +15443,18 @@ async function createTerminalInstance(opts) {
 }
 
 // src/commands.ts
-var activeTerminals = /* @__PURE__ */ new Map();
+var registry = createTerminalRegistry();
 function registerTerminal(viewId, inst) {
-  activeTerminals.set(viewId, inst);
+  registry.set(viewId, inst);
 }
 function unregisterTerminal(viewId) {
-  activeTerminals.delete(viewId);
-}
-function firstEntry() {
-  const iter = activeTerminals.entries().next();
-  return iter.done ? null : { viewId: iter.value[0], inst: iter.value[1] };
-}
-function resolveTerminal(view) {
-  if (typeof view === "string" && view) {
-    const inst = activeTerminals.get(view);
-    return inst ? { viewId: view, inst } : null;
-  }
-  return firstEntry();
+  registry.delete(viewId);
 }
 function registerCommands(ctx) {
   const app = ctx.app;
   if (!app.commands) return;
   const sub = (d2) => ctx.subscriptions.push(d2);
+  registerTerminalCommands(ctx, registry);
   sub(
     app.commands.register("ping", {
       description: "Terminal plugin load/version check (E2E).",
@@ -15383,64 +15462,6 @@ function registerCommands(ctx) {
       returns: "{ ok, version }",
       message: (d2) => `\uD130\uBBF8\uB110 \uD50C\uB7EC\uADF8\uC778 ${d2.version} \uC774 \uC801\uC7AC\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`,
       handler: () => ({ ok: true, version: "0.1.0" })
-    })
-  );
-  sub(
-    app.commands.register("send", {
-      description: "Send text to the active terminal PTY.",
-      triggers: { ko: "\uD130\uBBF8\uB110 \uD14D\uC2A4\uD2B8 \uC804\uC1A1 \uC785\uB825" },
-      params: {
-        text: { type: "string", description: "Text to send to the terminal", required: true }
-      },
-      returns: "{ ok, viewId? }",
-      message: () => "\uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC804\uC1A1\uD588\uC2B5\uB2C8\uB2E4.",
-      // 전송은 즉시 돌아온다 — 출력은 잠시 후 그 터미널을 core term.read 로 확인한다(pane=이 viewId).
-      hint: (d2) => d2.ok && typeof d2.viewId === "string" ? [{ cmd: `sok term.read '{"pane":"${d2.viewId}"}'`, why: "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uCD9C\uB825\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." }] : [],
-      handler: (p2) => {
-        const entry = firstEntry();
-        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        entry.inst.sendInput(String(p2.text ?? ""));
-        return { ok: true, viewId: entry.viewId };
-      }
-    })
-  );
-  sub(
-    app.commands.register("clear", {
-      description: "Clear the active terminal screen.",
-      triggers: { ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30 \uD074\uB9AC\uC5B4" },
-      returns: "{ ok, viewId? }",
-      message: () => "\uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4.",
-      handler: () => {
-        const entry = firstEntry();
-        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        entry.inst.clear();
-        return { ok: true, viewId: entry.viewId };
-      }
-    })
-  );
-  sub(
-    app.commands.register("resume", {
-      // [단계⑤/R9] 복원된 블록의 claude 세션을 이어간다 — 사용자 명시 액션만(auto-trigger 0). 복원 표식
-      // (verified 한 sessionId 블록)에서 이 커맨드를 부른다. sessionId 는 UUID 화이트리스트로 엄격 검증해
-      // (코어 ai_session::is_valid_session_id 와 동일 RFC4122 표준 — PTY 로 들어가는 위험 작업이라 양쪽
-      // 게이트, defense-in-depth) 위조 history·셸 injection 을 차단한다. UUID 엔 특수문자가 없어 안전.
-      description: "Resume a tracked claude session in the active terminal by its sessionId. User-initiated only; the sessionId must be a valid UUID.",
-      triggers: { ko: "\uC138\uC158 \uC774\uC5B4\uAC00\uAE30 \uC7AC\uAC1C resume" },
-      params: { session: { type: "string", description: "claude sessionId (UUID) to resume", required: true } },
-      returns: "{ ok, session, viewId? }",
-      message: (d2) => `\uC138\uC158 ${d2.session} \uC744 \uC774\uC5B4\uAC11\uB2C8\uB2E4.`,
-      // 재개 직후 에이전트가 응답을 스트리밍하기 시작한다 — 잠시 후 term.read 로 관찰할 수 있다.
-      hint: (d2) => d2.ok && typeof d2.viewId === "string" ? [{ cmd: `sok term.read '{"pane":"${d2.viewId}"}'`, why: "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uC774\uC5B4\uC9C4 \uC138\uC158\uC758 \uC751\uB2F5\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4." }] : [],
-      handler: (p2) => {
-        const sid = String(p2.session ?? "").trim();
-        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(sid)) {
-          return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
-        }
-        const entry = firstEntry();
-        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
-        entry.inst.sendInput(`claude --resume ${sid}\r`);
-        return { ok: true, session: sid, viewId: entry.viewId };
-      }
     })
   );
   sub(
@@ -15457,11 +15478,13 @@ function registerCommands(ctx) {
       handler: (p2) => {
         const views = {};
         if (typeof p2.view === "string" && p2.view) {
-          const inst = activeTerminals.get(p2.view);
-          if (!inst) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p2.view}` };
-          views[p2.view] = inst.perfStats();
+          const r5 = registry.get(p2.view);
+          if (!r5?.perfStats) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p2.view}` };
+          views[p2.view] = r5.perfStats();
         } else {
-          for (const [viewId, inst] of activeTerminals) views[viewId] = inst.perfStats();
+          for (const [viewId, r5] of registry.entries()) {
+            if (r5.perfStats) views[viewId] = r5.perfStats();
+          }
         }
         return { ok: true, views };
       }
@@ -15479,10 +15502,10 @@ function registerCommands(ctx) {
       returns: "{ ok, viewId, roundtripMs }",
       message: (d2) => `\uC785\uB825\u2192\uC5D0\uCF54 \uC655\uBCF5 ${d2.roundtripMs}ms (${d2.viewId}).`,
       handler: async (p2) => {
-        const entry = resolveTerminal(p2.view);
-        if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
+        const entry = registry.resolve(p2.view);
+        if (!entry?.renderer.echoProbe) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         try {
-          const roundtripMs = await entry.inst.echoProbe();
+          const roundtripMs = await entry.renderer.echoProbe();
           return { ok: true, viewId: entry.viewId, roundtripMs };
         } catch (err) {
           return { ok: false, code: "TIMEOUT", message: String(err) };
