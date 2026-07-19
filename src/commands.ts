@@ -7,6 +7,9 @@ import {
   type PluginContext,
 } from "soksak-kit-terminal-common";
 
+// build.mjs 가 package.json.version 을 주입(버전 단일진실 — 하드코딩 드리프트 금지).
+declare const __PLUGIN_VERSION__: string;
+
 // 이 플러그인의 활성 렌더러 레지스트리 — plugin-entry 가 mountTerminalView 에 넘긴다.
 export const terminalRegistry = createTerminalRegistry();
 
@@ -25,7 +28,7 @@ export function registerCommands(ctx: PluginContext): void {
       triggers: { ko: "터미널 핑 적재확인 버전" },
       returns: "{ ok, version }",
       message: (d) => `터미널 플러그인 ${d.version} 이 적재되어 있습니다.`,
-      handler: () => ({ ok: true, version: "0.1.0" }),
+      handler: () => ({ ok: true, version: __PLUGIN_VERSION__ }),
     }),
   );
 

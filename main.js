@@ -15311,8 +15311,9 @@ async function createPaneSplitHost(opts) {
       return tree;
     },
     async dispose() {
-      for (const { renderer } of hosts.values()) await renderer.dispose().catch(() => {
-      });
+      for (const { renderer } of hosts.values())
+        await renderer.dispose({ keepSession: true }).catch(() => {
+        });
       hosts.clear();
       container.replaceChildren();
     }
@@ -15396,9 +15397,9 @@ function mountTerminalView(app, opts) {
           });
           if (paneIo) {
             const origDispose = r5.dispose.bind(r5);
-            r5.dispose = async () => {
+            r5.dispose = async (opts2) => {
               paneIo.dispose();
-              await origDispose();
+              await origDispose(opts2);
             };
           }
           return r5;
@@ -15449,7 +15450,7 @@ function mountTerminalView(app, opts) {
       state.disposed = true;
       focus.detach();
       state.io?.dispose();
-      void state.single?.dispose();
+      void state.single?.dispose({ keepSession: true });
       void state.splitHost?.dispose();
       registry.delete(viewId);
     }
@@ -16093,7 +16094,7 @@ function registerCommands(ctx) {
       triggers: { ko: "\uD130\uBBF8\uB110 \uD551 \uC801\uC7AC\uD655\uC778 \uBC84\uC804" },
       returns: "{ ok, version }",
       message: (d2) => `\uD130\uBBF8\uB110 \uD50C\uB7EC\uADF8\uC778 ${d2.version} \uC774 \uC801\uC7AC\uB418\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`,
-      handler: () => ({ ok: true, version: "0.1.0" })
+      handler: () => ({ ok: true, version: "0.0.3" })
     })
   );
   sub(

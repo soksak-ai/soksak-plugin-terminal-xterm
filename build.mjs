@@ -41,6 +41,8 @@ const opts = {
   define: {
     "process.env.NODE_ENV": '"production"',
     "import.meta.env.DEV": "false",
+    // 버전 단일진실 = package.json. 하드코딩 드리프트 금지.
+    __PLUGIN_VERSION__: JSON.stringify(pkg.version),
   },
   outfile: "main.js",
   minify: false,

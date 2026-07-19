@@ -5,7 +5,7 @@
     "ko": "터미널",
     "en": "Terminal"
   },
-  "version": "0.0.2",
+  "version": "0.0.3",
   "renamedFrom": "soksak-plugin-terminal",
   "description": {
     "ko": "xterm.js 터미널 패널 — 코어 PTY 를 직접 구동.",
