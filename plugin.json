@@ -247,6 +247,13 @@
         }
       },
       {
+        "name": "panes",
+        "title": {
+          "ko": "탭 내 pane 목록",
+          "en": "List Panes (Within-Tab)"
+        }
+      },
+      {
         "name": "close-pane",
         "title": {
           "ko": "탭 내 pane 닫기",
