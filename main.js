@@ -14932,7 +14932,7 @@ function createTerminalRegistry() {
 
 // ../../kits/soksak-kit-terminal-common/src/commands.ts
 var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function registerTerminalCommands(ctx, registry2) {
+function registerTerminalCommands(ctx, registry) {
   const app = ctx.app;
   if (!app.commands) return;
   const sub = (d2) => ctx.subscriptions.push(d2);
@@ -14953,7 +14953,7 @@ function registerTerminalCommands(ctx, registry2) {
       // 전송은 즉시 돌아온다 — 출력은 잠시 후 그 터미널을 core term.read 로 확인한다(pane=이 viewId).
       hint: (d2) => readHint(d2, "\uC7A0\uC2DC \uD6C4 \uC774 \uD130\uBBF8\uB110\uC744 \uC77D\uC5B4 \uCD9C\uB825\uC744 \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."),
       handler: (p2) => {
-        const entry = registry2.resolve(p2.view);
+        const entry = registry.resolve(p2.view);
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.renderer.sendInput(String(p2.text ?? ""));
         return { ok: true, viewId: entry.viewId };
@@ -14968,7 +14968,7 @@ function registerTerminalCommands(ctx, registry2) {
       returns: "{ ok, viewId? }",
       message: () => "\uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4.",
       handler: (p2) => {
-        const entry = registry2.resolve(p2.view);
+        const entry = registry.resolve(p2.view);
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.renderer.clear();
         return { ok: true, viewId: entry.viewId };
@@ -14993,10 +14993,38 @@ function registerTerminalCommands(ctx, registry2) {
         if (!UUID_RE.test(sid)) {
           return { ok: false, code: "INVALID_INPUT", message: "invalid sessionId (UUID required)" };
         }
-        const entry = registry2.resolve(p2.view);
+        const entry = registry.resolve(p2.view);
         if (!entry) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         entry.renderer.sendInput(`claude --resume ${sid}\r`);
         return { ok: true, session: sid, viewId: entry.viewId };
+      }
+    })
+  );
+}
+function registerSplitPaneCommand(ctx, resolveHost) {
+  const app = ctx.app;
+  if (!app.commands) return;
+  ctx.subscriptions.push(
+    app.commands.register("split-pane", {
+      description: "Split the terminal view into an internal pane (within-tab split; requires splitMode=within-tab).",
+      triggers: { ko: "\uD130\uBBF8\uB110 \uD0ED\uB0B4 \uBD84\uD560 \uB098\uB204\uAE30" },
+      params: {
+        view: { type: "string", description: "Target view id (omit = first within-tab view)" },
+        dir: { type: "string", description: "'right' (default) or 'down'" }
+      },
+      returns: "{ ok, viewId?, paneId? }",
+      message: (d2) => d2.ok ? `pane ${d2.paneId} \uC744 \uBD84\uD560\uD588\uC2B5\uB2C8\uB2E4.` : "\uBD84\uD560 \uB300\uC0C1 \uC5C6\uC74C",
+      handler: async (p2) => {
+        const target = resolveHost(typeof p2.view === "string" && p2.view ? p2.view : void 0);
+        if (!target) {
+          return {
+            ok: false,
+            code: "NO_TARGET",
+            message: "no within-tab split host (set splitMode=within-tab)"
+          };
+        }
+        const paneId = await target.host.split(p2.dir === "down" ? "col" : "row");
+        return { ok: true, viewId: target.viewId, paneId };
       }
     })
   );
@@ -15246,6 +15274,79 @@ function createActivePaneProxy(host) {
     echoProbe: () => {
       const r5 = active();
       return r5?.echoProbe ? r5.echoProbe() : Promise.reject(new Error("no active pane"));
+    }
+  };
+}
+
+// ../../kits/soksak-kit-terminal-common/src/mount-terminal-view.ts
+function mountTerminalView(app, opts) {
+  const { mountRoot, viewId, withinTab, focus, registry, createRenderer, setStatus, emptyMessage } = opts;
+  const state = {
+    splitHost: null,
+    single: null,
+    io: null,
+    disposed: false
+  };
+  const fail = (err) => {
+    if (!state.disposed) setStatus({ code: "error", message: String(err) });
+  };
+  if (withinTab) {
+    let seq = 0;
+    let first = true;
+    void createPaneSplitHost({
+      container: mountRoot,
+      mintPaneId: () => `${viewId}~${seq++}`,
+      createRenderer: async (paneId) => {
+        const r5 = await createRenderer(paneId, first);
+        first = false;
+        return r5;
+      },
+      onEmpty: () => setStatus({ code: "error", message: emptyMessage })
+    }).then((h2) => {
+      if (state.disposed) {
+        void h2.dispose();
+        return;
+      }
+      state.splitHost = h2;
+      state.io = app.pty?.registerIo?.(viewId, {
+        readBuffer: (lines) => h2.active()?.renderer.readBuffer(lines) ?? "",
+        sendInput: (data) => h2.active()?.renderer.sendInput(data)
+      }) ?? null;
+      focus.attach({
+        focus: () => h2.active()?.renderer.focus(),
+        prepareFocusTransfer: () => h2.active()?.renderer.prepareFocusTransfer()
+      });
+      registry.set(viewId, createActivePaneProxy(h2));
+      setStatus(null);
+    }).catch(fail);
+  } else {
+    void createRenderer(viewId, true).then((r5) => {
+      if (state.disposed) {
+        void r5.dispose();
+        return;
+      }
+      state.single = r5;
+      mountRoot.appendChild(r5.element);
+      state.io = app.pty?.registerIo?.(viewId, {
+        readBuffer: (lines) => r5.readBuffer(lines),
+        sendInput: (data) => r5.sendInput(data)
+      }) ?? null;
+      focus.attach({ focus: () => r5.focus(), prepareFocusTransfer: () => r5.prepareFocusTransfer() });
+      registry.set(viewId, r5);
+      setStatus(null);
+    }).catch(fail);
+  }
+  return {
+    get splitHost() {
+      return state.splitHost;
+    },
+    dispose() {
+      state.disposed = true;
+      focus.detach();
+      state.io?.dispose();
+      void state.single?.dispose();
+      void state.splitHost?.dispose();
+      registry.delete(viewId);
     }
   };
 }
@@ -15847,18 +15948,12 @@ async function mountPane(app, opts) {
 }
 
 // src/commands.ts
-var registry = createTerminalRegistry();
-function registerTerminal(viewId, r5) {
-  registry.set(viewId, r5);
-}
-function unregisterTerminal(viewId) {
-  registry.delete(viewId);
-}
+var terminalRegistry = createTerminalRegistry();
 function registerCommands(ctx) {
   const app = ctx.app;
   if (!app.commands) return;
   const sub = (d2) => ctx.subscriptions.push(d2);
-  registerTerminalCommands(ctx, registry);
+  registerTerminalCommands(ctx, terminalRegistry);
   sub(
     app.commands.register("ping", {
       description: "Terminal plugin load/version check (E2E).",
@@ -15882,11 +15977,11 @@ function registerCommands(ctx) {
       handler: (p2) => {
         const views = {};
         if (typeof p2.view === "string" && p2.view) {
-          const r5 = registry.get(p2.view);
+          const r5 = terminalRegistry.get(p2.view);
           if (!r5?.perfStats) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p2.view}` };
           views[p2.view] = r5.perfStats();
         } else {
-          for (const [viewId, r5] of registry.entries()) {
+          for (const [viewId, r5] of terminalRegistry.entries()) {
             if (r5.perfStats) views[viewId] = r5.perfStats();
           }
         }
@@ -15906,7 +16001,7 @@ function registerCommands(ctx) {
       returns: "{ ok, viewId, roundtripMs }",
       message: (d2) => `\uC785\uB825\u2192\uC5D0\uCF54 \uC655\uBCF5 ${d2.roundtripMs}ms (${d2.viewId}).`,
       handler: async (p2) => {
-        const entry = registry.resolve(p2.view);
+        const entry = terminalRegistry.resolve(p2.view);
         if (!entry?.renderer.echoProbe) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         try {
           const roundtripMs = await entry.renderer.echoProbe();
@@ -15937,82 +16032,31 @@ function mountTerminal(container, ctx, vctx) {
     return () => {
     };
   }
-  const m2 = {
-    focus: createFocusCoordinator(),
-    single: null,
-    splitHost: null,
-    io: null,
-    disposed: false
-  };
-  mounts.set(viewId, m2);
   const cwd = vctx.restore?.cwd ?? vctx.root ?? void 0;
   const withinTab = String(app.settings?.get?.("splitMode") ?? "tab") === "within-tab";
-  const fail = (err) => {
-    if (!m2.disposed) vctx.setStatus({ code: "error", message: String(err) });
+  const focus = createFocusCoordinator();
+  const handle = mountTerminalView(app, {
+    mountRoot: wrap,
+    viewId,
+    withinTab,
+    focus,
+    registry: terminalRegistry,
+    // pane 마다 xterm 인스턴스 + 이 pane 의 블록 이력. 첫 pane 만 initialCommand(에이전트 자동 실행).
+    createRenderer: (paneId, isFirst) => mountPane(app, {
+      vctx,
+      paneId,
+      cwd,
+      initialCommand: isFirst ? vctx.command ?? void 0 : void 0
+    }),
+    setStatus: (s15) => vctx.setStatus(s15),
+    emptyMessage: "\uBE48 \uBDF0 \u2014 \uB9C8\uC9C0\uB9C9 pane \uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4"
+  });
+  mounts.set(viewId, { focus, handle });
+  return () => {
+    handle.dispose();
+    mounts.delete(viewId);
+    container.replaceChildren();
   };
-  if (withinTab) {
-    let seq = 0;
-    let first = true;
-    void createPaneSplitHost({
-      container: wrap,
-      mintPaneId: () => `${viewId}~${seq++}`,
-      createRenderer: async (paneId) => {
-        const r5 = await mountPane(app, {
-          vctx,
-          paneId,
-          cwd,
-          initialCommand: first ? vctx.command ?? void 0 : void 0
-        });
-        first = false;
-        return r5;
-      },
-      onEmpty: () => vctx.setStatus({ code: "error", message: "\uBE48 \uBDF0 \u2014 \uB9C8\uC9C0\uB9C9 pane \uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4" })
-    }).then((h2) => {
-      if (m2.disposed) {
-        void h2.dispose();
-        return;
-      }
-      m2.splitHost = h2;
-      m2.io = app.pty?.registerIo?.(viewId, {
-        readBuffer: (lines) => h2.active()?.renderer.readBuffer(lines) ?? "",
-        sendInput: (data) => h2.active()?.renderer.sendInput(data)
-      }) ?? null;
-      m2.focus.attach({
-        focus: () => h2.active()?.renderer.focus(),
-        prepareFocusTransfer: () => h2.active()?.renderer.prepareFocusTransfer()
-      });
-      registerTerminal(viewId, createActivePaneProxy(h2));
-      vctx.setStatus(null);
-    }).catch(fail);
-    return () => cleanup(m2, viewId, container);
-  }
-  void mountPane(app, { vctx, paneId: viewId, cwd, initialCommand: vctx.command ?? void 0 }).then((inst) => {
-    if (m2.disposed) {
-      void inst.dispose();
-      return;
-    }
-    m2.single = inst;
-    wrap.appendChild(inst.element);
-    m2.io = app.pty?.registerIo?.(viewId, {
-      readBuffer: (lines) => inst.readBuffer(lines),
-      sendInput: (data) => inst.sendInput(data)
-    }) ?? null;
-    m2.focus.attach({ focus: () => inst.focus(), prepareFocusTransfer: () => inst.prepareFocusTransfer() });
-    registerTerminal(viewId, inst);
-    vctx.setStatus(null);
-    vctx.setTitle("Terminal");
-  }).catch(fail);
-  return () => cleanup(m2, viewId, container);
-}
-function cleanup(m2, viewId, container) {
-  m2.disposed = true;
-  m2.focus.detach();
-  m2.io?.dispose();
-  void m2.single?.dispose();
-  void m2.splitHost?.dispose();
-  unregisterTerminal(viewId);
-  mounts.delete(viewId);
-  container.replaceChildren();
 }
 var plugin_entry_default = {
   activate(ctx) {
@@ -16061,41 +16105,16 @@ var plugin_entry_default = {
       );
     }
     registerCommands(ctx);
-    if (app.commands) {
-      ctx.subscriptions.push(
-        app.commands.register("split-pane", {
-          description: "Split the terminal view into an internal pane (within-tab split; requires splitMode=within-tab).",
-          triggers: { ko: "\uD130\uBBF8\uB110 \uD0ED\uB0B4 \uBD84\uD560 \uB098\uB204\uAE30" },
-          params: {
-            view: { type: "string", description: "Target view id (omit = first within-tab view)" },
-            dir: { type: "string", description: "'right' (default) or 'down'" }
-          },
-          returns: "{ ok, viewId?, paneId? }",
-          message: (d2) => d2.ok ? `pane ${d2.paneId} \uC744 \uBD84\uD560\uD588\uC2B5\uB2C8\uB2E4.` : "\uBD84\uD560 \uB300\uC0C1 \uC5C6\uC74C",
-          handler: async (p2) => {
-            const viewId = typeof p2.view === "string" && p2.view ? p2.view : [...mounts].find(([, mm2]) => mm2.splitHost)?.[0];
-            const mm = viewId ? mounts.get(viewId) : void 0;
-            if (!mm?.splitHost) {
-              return {
-                ok: false,
-                code: "NO_TARGET",
-                message: "no within-tab split host (set splitMode=within-tab)"
-              };
-            }
-            const paneId = await mm.splitHost.split(p2.dir === "down" ? "col" : "row");
-            return { ok: true, viewId, paneId };
-          }
-        })
-      );
-    }
+    registerSplitPaneCommand(ctx, (view) => {
+      const viewId = view ?? [...mounts].find(([, m3]) => m3.handle.splitHost)?.[0];
+      const m2 = viewId ? mounts.get(viewId) : void 0;
+      return m2?.handle.splitHost ? { viewId, host: m2.handle.splitHost } : null;
+    });
   },
   deactivate() {
     const s15 = document.getElementById("sk-terminal-style");
     if (s15) s15.remove();
-    for (const m2 of mounts.values()) {
-      void m2.single?.dispose();
-      void m2.splitHost?.dispose();
-    }
+    for (const m2 of mounts.values()) m2.handle.dispose();
     mounts.clear();
   }
 };

@@ -1,24 +1,14 @@
 // terminal.* 명령 — 공통(send·clear·resume)은 kit 이 렌더러 레지스트리로 등록하고, ping(정체성)·
-// perf(계측)는 이 플러그인이 소유한다. 활성 렌더러는 kit 레지스트리에 담기고 plugin-entry 가
-// 마운트/언마운트로 등록/해지한다.
+// perf(계측)는 이 플러그인이 소유한다. 활성 렌더러는 이 레지스트리에 담기고 kit mountTerminalView 가
+// 마운트/언마운트로 등록/해지한다(비분할=렌더러, 탭내=활성 pane 위임 프록시).
 import {
   registerTerminalCommands,
   createTerminalRegistry,
   type PluginContext,
-  type TerminalRenderer,
 } from "soksak-kit-terminal-common";
 
-// 이 플러그인의 활성 렌더러 레지스트리.
-const registry = createTerminalRegistry();
-
-// 비분할=TerminalInstance, 탭내 분할=활성 pane 위임 프록시(둘 다 TerminalRenderer) — 명령이
-// 뷰 단위로 대상을 해소하되 within-tab 이면 활성 pane 에 닿는다.
-export function registerTerminal(viewId: string, r: TerminalRenderer): void {
-  registry.set(viewId, r);
-}
-export function unregisterTerminal(viewId: string): void {
-  registry.delete(viewId);
-}
+// 이 플러그인의 활성 렌더러 레지스트리 — plugin-entry 가 mountTerminalView 에 넘긴다.
+export const terminalRegistry = createTerminalRegistry();
 
 export function registerCommands(ctx: PluginContext): void {
   const app = ctx.app;
@@ -26,7 +16,7 @@ export function registerCommands(ctx: PluginContext): void {
   const sub = (d: { dispose(): void }) => ctx.subscriptions.push(d);
 
   // 공통 명령(send·clear·resume) — kit.
-  registerTerminalCommands(ctx, registry);
+  registerTerminalCommands(ctx, terminalRegistry);
 
   // ping — 이 플러그인의 정체성/버전.
   sub(
@@ -54,11 +44,11 @@ export function registerCommands(ctx: PluginContext): void {
       handler: (p) => {
         const views: Record<string, unknown> = {};
         if (typeof p.view === "string" && p.view) {
-          const r = registry.get(p.view);
+          const r = terminalRegistry.get(p.view);
           if (!r?.perfStats) return { ok: false, code: "NO_TARGET", message: `no terminal: ${p.view}` };
           views[p.view] = r.perfStats();
         } else {
-          for (const [viewId, r] of registry.entries()) {
+          for (const [viewId, r] of terminalRegistry.entries()) {
             if (r.perfStats) views[viewId] = r.perfStats();
           }
         }
@@ -80,7 +70,7 @@ export function registerCommands(ctx: PluginContext): void {
       returns: "{ ok, viewId, roundtripMs }",
       message: (d) => `입력→에코 왕복 ${d.roundtripMs}ms (${d.viewId}).`,
       handler: async (p) => {
-        const entry = registry.resolve(p.view);
+        const entry = terminalRegistry.resolve(p.view);
         if (!entry?.renderer.echoProbe) return { ok: false, code: "NO_TARGET", message: "no active terminal" };
         try {
           const roundtripMs = await entry.renderer.echoProbe();

@@ -2,9 +2,8 @@
 // RED: 계측면 부재(perf.ts 모듈 없음 + 커맨드 미등록) → 이 테스트가 실패한다.
 import { describe, it, expect } from "vitest";
 import { createPerfCounters } from "./perf";
-import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
-import type { PluginContext } from "soksak-kit-terminal-common";
-import type { TerminalInstance } from "./terminal";
+import { registerCommands, terminalRegistry } from "./commands";
+import type { PluginContext, TerminalRenderer } from "soksak-kit-terminal-common";
 
 describe("perf counters (순수 가산 — 폴링 0)", () => {
   it("바이트/ACK/write 콜백 지연/프레임을 정수 가산하고 스냅샷으로 노출한다", () => {
@@ -85,9 +84,9 @@ describe("perf.stats / perf.echo 커맨드", () => {
       webglActive: true,
       scrollbackRows: 4,
     };
-    registerTerminal("v-test", {
+    terminalRegistry.set("v-test", {
       perfStats: () => stats,
-    } as unknown as TerminalInstance);
+    } as unknown as TerminalRenderer);
     try {
       const r = (await registered.get("perf.stats")!.handler({})) as {
         ok: boolean;
@@ -96,7 +95,7 @@ describe("perf.stats / perf.echo 커맨드", () => {
       expect(r.ok).toBe(true);
       expect(r.views["v-test"]).toEqual(stats);
     } finally {
-      unregisterTerminal("v-test");
+      terminalRegistry.delete("v-test");
     }
   });
 
@@ -105,9 +104,9 @@ describe("perf.stats / perf.echo 커맨드", () => {
     registerCommands(ctx);
     expect([...registered.keys()]).toContain("perf.echo");
 
-    registerTerminal("v-echo", {
+    terminalRegistry.set("v-echo", {
       echoProbe: async () => 7.25,
-    } as unknown as TerminalInstance);
+    } as unknown as TerminalRenderer);
     try {
       const r = (await registered.get("perf.echo")!.handler({})) as {
         ok: boolean;
@@ -118,7 +117,7 @@ describe("perf.stats / perf.echo 커맨드", () => {
       expect(r.viewId).toBe("v-echo");
       expect(r.roundtripMs).toBe(7.25);
     } finally {
-      unregisterTerminal("v-echo");
+      terminalRegistry.delete("v-echo");
     }
   });
 
