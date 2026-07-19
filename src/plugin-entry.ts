@@ -6,6 +6,8 @@ import { createTerminalInstance } from "./terminal";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
 import {
   ensureSidecar,
+  createFocusCoordinator,
+  type FocusCoordinator,
   type Disposable,
   type PluginApi,
   type PluginContext,
@@ -224,13 +226,7 @@ export default {
     );
 
     if (app.ui?.registerView) {
-      const focusStates = new WeakMap<
-        HTMLElement,
-        {
-          instance: TerminalInstance | null;
-          pending: { signal: AbortSignal } | null;
-        }
-      >();
+      const focusStates = new WeakMap<HTMLElement, FocusCoordinator>();
       ctx.subscriptions.push(
         app.ui.registerView("content", {
           mount(container: HTMLElement, vctx: PluginViewContext) {
@@ -256,11 +252,8 @@ export default {
 
             let disposed = false;
             let termInst: import("./terminal").TerminalInstance | null = null;
-            const focusState = {
-              instance: null as TerminalInstance | null,
-              pending: null as { signal: AbortSignal } | null,
-            };
-            focusStates.set(container, focusState);
+            const focusCoord = createFocusCoordinator();
+            focusStates.set(container, focusCoord);
             // 코어 substrate 에 등록한 IO 핸들(있으면 dispose 에서 해지). app.terminal.readBuffer/
             // sendText 가 이 viewId(=paneId)로 이 터미널의 버퍼 읽기·입력 쓰기에 닿게 한다.
             let ioReg: Disposable | null = null;
@@ -311,18 +304,14 @@ export default {
                 return;
               }
               termInst = inst;
-              focusState.instance = inst;
               // inst.element 에 data-node 가 이미 설정됨 (terminal.ts)
               wrap.appendChild(inst.element);
-              const pendingFocus = focusState.pending;
-              focusState.pending = null;
-              if (
-                pendingFocus &&
-                !pendingFocus.signal.aborted &&
-                !container.contains(document.activeElement)
-              ) {
-                inst.focus();
-              }
+              // 렌더러 준비 완료 — 대기 중이던 포커스 요청이 있으면 코디네이터가 적용한다(창전환
+              // 포커스 팔로우).
+              focusCoord.attach({
+                focus: () => inst.focus(),
+                prepareFocusTransfer: () => inst.prepareFocusTransfer(),
+              });
               registerTerminal(viewId, inst);
               // app.terminal.readBuffer/sendText 가 이 터미널에 닿도록 IO 핸들 등록(키=viewId=paneId).
               ioReg = app.pty?.registerIo?.(viewId, {
@@ -351,8 +340,7 @@ export default {
             // termInst 를 직접 참조해 PTY 세션을 닫는다(레지스트리 경유 없음).
             (wrap as unknown as Record<string, unknown>).__skTermDispose = async () => {
               disposed = true;
-              focusState.instance = null;
-              focusState.pending = null;
+              focusCoord.detach();
               unSettings?.dispose();
               ioReg?.dispose(); // substrate IO 핸들 해지(누수 0)
               ioReg = null;
@@ -366,21 +354,11 @@ export default {
           },
 
           prepareFocusTransfer(container) {
-            focusStates.get(container)?.instance?.prepareFocusTransfer();
+            focusStates.get(container)?.prepareTransfer();
           },
 
           focus(container, _vctx, request) {
-            const state = focusStates.get(container);
-            if (!state || request.signal.aborted) return;
-            state.pending = request;
-            if (
-              !state.instance ||
-              container.contains(document.activeElement)
-            ) {
-              return;
-            }
-            state.pending = null;
-            state.instance.focus();
+            focusStates.get(container)?.request(request);
           },
 
           unmount(container: HTMLElement) {

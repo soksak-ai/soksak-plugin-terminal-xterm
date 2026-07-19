@@ -14891,6 +14891,34 @@ async function coldOrFresh(app, paneId, writeInert, sidecarDown) {
   return { replay: "none", painted: false };
 }
 
+// ../../kits/soksak-kit-terminal-common/src/focus-coordinator.ts
+function createFocusCoordinator() {
+  let target = null;
+  let pending = null;
+  const apply = () => {
+    if (!target || !pending || pending.signal.aborted) return;
+    pending = null;
+    target.focus();
+  };
+  return {
+    request(req) {
+      pending = req;
+      apply();
+    },
+    attach(t3) {
+      target = t3;
+      apply();
+    },
+    prepareTransfer() {
+      target?.prepareFocusTransfer();
+    },
+    detach() {
+      target = null;
+      pending = null;
+    }
+  };
+}
+
 // src/terminal.ts
 var FLOW_ACK_SIZE = 5e3;
 async function createTerminal(options) {
@@ -15624,11 +15652,8 @@ var plugin_entry_default = {
             }
             let disposed = false;
             let termInst = null;
-            const focusState = {
-              instance: null,
-              pending: null
-            };
-            focusStates.set(container, focusState);
+            const focusCoord = createFocusCoordinator();
+            focusStates.set(container, focusCoord);
             let ioReg = null;
             const readSettings = () => {
               const all = app.settings?.all?.() ?? {};
@@ -15669,13 +15694,11 @@ var plugin_entry_default = {
                 return;
               }
               termInst = inst;
-              focusState.instance = inst;
               wrap.appendChild(inst.element);
-              const pendingFocus = focusState.pending;
-              focusState.pending = null;
-              if (pendingFocus && !pendingFocus.signal.aborted && !container.contains(document.activeElement)) {
-                inst.focus();
-              }
+              focusCoord.attach({
+                focus: () => inst.focus(),
+                prepareFocusTransfer: () => inst.prepareFocusTransfer()
+              });
               registerTerminal(viewId, inst);
               ioReg = app.pty?.registerIo?.(viewId, {
                 readBuffer: (lines) => inst.readBuffer(lines),
@@ -15695,8 +15718,7 @@ var plugin_entry_default = {
             });
             wrap.__skTermDispose = async () => {
               disposed = true;
-              focusState.instance = null;
-              focusState.pending = null;
+              focusCoord.detach();
               unSettings?.dispose();
               ioReg?.dispose();
               ioReg = null;
@@ -15710,17 +15732,10 @@ var plugin_entry_default = {
             container.__skTermWrap = wrap;
           },
           prepareFocusTransfer(container) {
-            focusStates.get(container)?.instance?.prepareFocusTransfer();
+            focusStates.get(container)?.prepareTransfer();
           },
           focus(container, _vctx, request) {
-            const state = focusStates.get(container);
-            if (!state || request.signal.aborted) return;
-            state.pending = request;
-            if (!state.instance || container.contains(document.activeElement)) {
-              return;
-            }
-            state.pending = null;
-            state.instance.focus();
+            focusStates.get(container)?.request(request);
           },
           unmount(container) {
             const wrap = container.__skTermWrap;
