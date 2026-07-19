@@ -1,12 +1,13 @@
 // soksak terminal 플러그인 엔트리 — loader 가 blob-URL 로 import 하는 단일 ESM(esbuild 번들).
 // 콘텐츠 뷰 "content" 를 등록 → xterm.js 터미널을 마운트, app.pty.* 로 PTY 구동.
 import { injectStyles } from "./styles";
-import { terminalStartedActivity, terminalFinishedActivity } from "./activity";
 import { createTerminalInstance } from "./terminal";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
 import {
   ensureSidecar,
   createFocusCoordinator,
+  terminalStartedActivity,
+  terminalFinishedActivity,
   type FocusCoordinator,
   type Disposable,
   type PluginApi,

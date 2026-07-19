@@ -324,40 +324,6 @@ function injectStyles() {
   document.head.appendChild(s15);
 }
 
-// src/i18n.ts
-var EN = {
-  connecting: "Connecting\u2026",
-  error: "Terminal error",
-  title: "Terminal",
-  // 활동 로그 — 이 플러그인이 소유하는 터미널 명령 활동의 표시/낭독 문장(코어 아님).
-  "activity.exit": "exit",
-  "activity.done.ok": "A terminal command finished.",
-  "activity.done.fail": "A command failed with code"
-};
-var KO = {
-  connecting: "\uC5F0\uACB0 \uC911\u2026",
-  error: "\uD130\uBBF8\uB110 \uC624\uB958",
-  title: "\uD130\uBBF8\uB110",
-  "activity.exit": "\uC885\uB8CC",
-  "activity.done.ok": "\uD130\uBBF8\uB110 \uBA85\uB839\uC774 \uB05D\uB0AC\uC5B4\uC694.",
-  "activity.done.fail": "\uBA85\uB839\uC774 \uC2E4\uD328\uD588\uC5B4\uC694. \uCF54\uB4DC"
-};
-function t(key, lang) {
-  const dict = lang === "ko" ? KO : EN;
-  return dict[key] ?? EN[key] ?? key;
-}
-
-// src/activity.ts
-function terminalStartedActivity(commandLine) {
-  return { message: `$ ${commandLine ?? ""}`.trimEnd() };
-}
-function terminalFinishedActivity(exitCode, lang) {
-  return {
-    message: `${t("activity.exit", lang)} ${exitCode ?? ""}`.trimEnd(),
-    speak: exitCode == null || exitCode === 0 ? t("activity.done.ok", lang) : `${t("activity.done.fail", lang)} ${exitCode}.`
-  };
-}
-
 // node_modules/@xterm/xterm/lib/xterm.mjs
 var zs = Object.defineProperty;
 var Rl = Object.getOwnPropertyDescriptor;
@@ -14779,7 +14745,7 @@ function makeTranslator(en3, ko2) {
 }
 
 // ../../kits/soksak-kit-terminal-common/src/restore.ts
-var EN2 = {
+var EN = {
   "cold-restore-notice": "[Restored from a sealed checkpoint \u2014 the running process ended and was not restored; only the screen record was repainted]",
   "restore.degraded": "Could not reach the terminal restore sidecar \u2014 restore is degraded (falling back to the sealed record).",
   "restore.degraded-fresh": "Restore service is unavailable \u2014 starting a fresh shell without screen history.",
@@ -14787,7 +14753,7 @@ var EN2 = {
   "sidecar.spawn-failed": "Failed to spawn the terminal restore sidecar.",
   "sidecar.subscribe-timeout": "The restore sidecar did not subscribe this session in time \u2014 restore fidelity is limited for this session."
 };
-var KO2 = {
+var KO = {
   "cold-restore-notice": "[\uBD09\uC778 \uCCB4\uD06C\uD3EC\uC778\uD2B8\uC5D0\uC11C \uBCF5\uC6D0 \u2014 \uC2E4\uD589 \uC911\uC774\uB358 \uD504\uB85C\uC138\uC2A4\uB294 \uC885\uB8CC\uB418\uC5B4 \uBCF5\uC6D0\uB418\uC9C0 \uC54A\uC558\uACE0, \uD654\uBA74 \uAE30\uB85D\uB9CC \uB2E4\uC2DC \uADF8\uB838\uC2B5\uB2C8\uB2E4]",
   "restore.degraded": "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0AC\uC774\uB4DC\uCE74\uC5D0 \uB2FF\uC9C0 \uBABB\uD574 \uBCF5\uC6D0\uC774 \uC81C\uD55C\uB429\uB2C8\uB2E4(\uBD09\uC778 \uAE30\uB85D\uC73C\uB85C \uD3F4\uBC31).",
   "restore.degraded-fresh": "\uBCF5\uC6D0 \uC11C\uBE44\uC2A4 \uBBF8\uAC00\uB3D9 \u2014 \uD654\uBA74 \uAE30\uB85D \uC5C6\uC774 \uC0C8 \uC178\uB85C \uC2DC\uC791\uD569\uB2C8\uB2E4.",
@@ -14795,7 +14761,7 @@ var KO2 = {
   "sidecar.spawn-failed": "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0AC\uC774\uB4DC\uCE74 \uC2A4\uD3F0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4.",
   "sidecar.subscribe-timeout": "\uBCF5\uC6D0 \uC0AC\uC774\uB4DC\uCE74\uAC00 \uC774 \uC138\uC158\uC744 \uC81C\uB54C \uAD6C\uB3C5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uC774 \uC138\uC158\uC758 \uBCF5\uC6D0 \uCDA9\uC2E4\uB3C4\uAC00 \uC81C\uD55C\uB429\uB2C8\uB2E4."
 };
-var t2 = makeTranslator(EN2, KO2);
+var t = makeTranslator(EN, KO);
 var TERMINAL_CONTRACT = "soksak-spec-sidecar-terminal";
 function b64ToBytes(b64) {
   const bin = atob(b64);
@@ -14809,7 +14775,7 @@ function ensureSidecar(app) {
   const unit = proc.sidecarName(TERMINAL_CONTRACT);
   proc.spawn(`sidecar:${unit}`, [], { detached: true }).catch((e) => {
     app.activity.publish("terminal.sidecar.spawn-failed", {
-      message: `${t2("sidecar.spawn-failed", app.locale())} (${String(e)})`
+      message: `${t("sidecar.spawn-failed", app.locale())} (${String(e)})`
     });
   });
 }
@@ -14828,7 +14794,7 @@ async function ensureSession(app, paneId, cols, rows) {
     delay = Math.min(delay * 2, 1e3);
   }
   app.activity.publish("terminal.sidecar.subscribe-timeout", {
-    message: `${t2("sidecar.subscribe-timeout", app.locale())} (${paneId})`
+    message: `${t("sidecar.subscribe-timeout", app.locale())} (${paneId})`
   });
 }
 async function orchestrateRestore(app, paneId, writeInert) {
@@ -14858,7 +14824,7 @@ async function orchestrateRestore(app, paneId, writeInert) {
         delay = Math.min(delay * 2, 1e3);
       }
     }
-    app.activity.publish("terminal.restore.degraded", { message: t2("restore.degraded", app.locale()) });
+    app.activity.publish("terminal.restore.degraded", { message: t("restore.degraded", app.locale()) });
     ensureSidecar(app);
     return coldOrFresh(app, paneId, writeInert, true);
   }
@@ -14871,20 +14837,20 @@ async function coldOrFresh(app, paneId, writeInert, sidecarDown) {
     const sealed = await pty.readSealedScreen(paneId);
     if (sealed) {
       writeInert(b64ToBytes(sealed.paintB64));
-      writeInert(`\x1B[2m${t2("cold-restore-notice", app.locale())}\x1B[0m\r
+      writeInert(`\x1B[2m${t("cold-restore-notice", app.locale())}\x1B[0m\r
 `);
       return { replay: "none", painted: true };
     }
   } catch (e) {
     app.activity.publish("terminal.restore.cold-blocked", {
-      message: `${t2("restore.cold-blocked", app.locale())} (${String(e)})`
+      message: `${t("restore.cold-blocked", app.locale())} (${String(e)})`
     });
   }
   if (sidecarDown) {
-    writeInert(`\x1B[2m${t2("restore.degraded-fresh", app.locale())}\x1B[0m\r
+    writeInert(`\x1B[2m${t("restore.degraded-fresh", app.locale())}\x1B[0m\r
 `);
     app.activity.publish("terminal.restore.degraded-fresh", {
-      message: t2("restore.degraded-fresh", app.locale())
+      message: t("restore.degraded-fresh", app.locale())
     });
     return { replay: "none", painted: false };
   }
@@ -14916,6 +14882,28 @@ function createFocusCoordinator() {
       target = null;
       pending = null;
     }
+  };
+}
+
+// ../../kits/soksak-kit-terminal-common/src/activity.ts
+var EN2 = {
+  "activity.exit": "exit",
+  "activity.done.ok": "A terminal command finished.",
+  "activity.done.fail": "A command failed with code"
+};
+var KO2 = {
+  "activity.exit": "\uC885\uB8CC",
+  "activity.done.ok": "\uD130\uBBF8\uB110 \uBA85\uB839\uC774 \uB05D\uB0AC\uC5B4\uC694.",
+  "activity.done.fail": "\uBA85\uB839\uC774 \uC2E4\uD328\uD588\uC5B4\uC694. \uCF54\uB4DC"
+};
+var t2 = makeTranslator(EN2, KO2);
+function terminalStartedActivity(commandLine) {
+  return { message: `$ ${commandLine ?? ""}`.trimEnd() };
+}
+function terminalFinishedActivity(exitCode, lang) {
+  return {
+    message: `${t2("activity.exit", lang)} ${exitCode ?? ""}`.trimEnd(),
+    speak: exitCode == null || exitCode === 0 ? t2("activity.done.ok", lang) : `${t2("activity.done.fail", lang)} ${exitCode}.`
   };
 }
 
