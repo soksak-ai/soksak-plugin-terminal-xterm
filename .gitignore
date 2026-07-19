@@ -5,3 +5,6 @@ node_modules
 secret/
 dist/
 node_modules/
+
+# build-generated (kit path discovery — see build.mjs)
+tsconfig.paths.json
