@@ -8,9 +8,17 @@ import { WebglAddon } from "@xterm/addon-webgl";
 
 import { WebkitImeAddon } from "./vendor/xterm-addon-webkit-ime";
 import { themeFor } from "./theme";
-import { createPerfCounters, type PerfSnapshot } from "./perf";
-import type { PtyApi, PluginApi, Disposable } from "./host";
-import { orchestrateRestore, ensureSession } from "./restore";
+import { createPerfCounters } from "./perf";
+import {
+  orchestrateRestore,
+  ensureSession,
+  type PtyApi,
+  type PluginApi,
+  type Disposable,
+  type TerminalRenderer,
+  type TerminalSettings,
+  type PerfSnapshot,
+} from "soksak-kit-terminal-common";
 
 // VSCode FlowControlConstants.CharCountAckSize 와 동일.
 const FLOW_ACK_SIZE = 5000;
@@ -52,13 +60,9 @@ export interface CreateTerminalOptions {
   paneId?: string;
 }
 
-// 설정 타입은 이 플러그인 소유 — manifest contributes.configuration 와 1:1.
-export interface TermSettings {
-  fontFamily?: string;
-  fontSize?: number;
-  scrollback?: number;
-  cursorBlink?: boolean;
-  cursorStyle?: "block" | "underline" | "bar";
+// 설정 타입은 이 플러그인 소유 — manifest contributes.configuration 와 1:1. kit 의 공통
+// TerminalSettings 를 확장해 xterm 전용 렌더러 선택을 더한다.
+export interface TermSettings extends TerminalSettings {
   xtermRenderer?: "webgl" | "dom";
 }
 
@@ -85,32 +89,14 @@ export interface TerminalHandle {
 }
 
 // plugin-entry 가 마운트하므로 container 를 내부에서 만들고 element 를 instance API 로 노출한다.
-export interface TerminalInstance {
-  element: HTMLElement;
-  /** 이 터미널이 마운트 시 복원 화면을 스스로 그렸는가(warm rehydrate | cold 봉인 페인트).
-   *  true 면 명령-블록 floor(이력 repaint)를 겹치지 않는다 — 복원 프레임이 뷰포트 권위. 판단은
-   *  플러그인 내부 사실(자기가 그렸으니 자기가 안다) — 외부 신호 불요. */
-  readonly restorePainted: boolean;
-  dispose(): Promise<void>;
-  focus(): void;
-  /** Commit any transient IME state before another view receives focus. */
-  prepareFocusTransfer(): void;
-  fit(): void;
-  sendInput(data: string): void;
+// kit 의 TerminalRenderer 계약을 구현한다 — 드리프트(계약과 어긋남)는 tsc 가 잡는다. 계측
+// (perfStats/echoProbe)은 계약에선 선택이지만 xterm 은 항상 제공하므로 여기선 필수로 좁힌다.
+export interface TerminalInstance extends TerminalRenderer<TermSettings> {
+  // xterm 은 이 extras 를 항상 제공한다 — 계약에선 선택이지만 여기선 필수로 좁힌다.
   paste(text: string): void;
-  readBuffer(lines?: number): string;
-  /** 화면에 직접 write(PTY 우회 — 복원 텍스트 등 inert, 재실행 0). */
-  write(data: string): void;
-  clear(): void;
-  /** [R14] 화면 페인트 일시중단 — true 면 PTY 출력을 화면에 안 그린다(평문 미노출). ACK(플로우
-   *  컨트롤)는 계속 보내 PTY 가 막히지 않는다(backend drain 지속). vault lock 중 사용, unlock 시 false. */
   setScreenSuspended(suspended: boolean): void;
-  applySettings(s: TermSettings): void;
-  /** 성능 카운터 스냅샷(pull) — onData/ACK/write 콜백/onRender 누적 + 라이브 webglActive/scrollbackRows.
-   *  perf.stats 명령이 노출한다. 두 스냅샷 차분으로 구간을 잰다(폴링 0). */
+  applySettings(settings: TermSettings): void;
   perfStats(): PerfSnapshot;
-  /** 입력→에코 왕복(ms) 1회 프로브: PTY 에 무해 입력(" "+DEL)을 write 하고 다음 onData 도착까지 잰다.
-   *  소켓 RPC·페인트는 제외한다(측정점 = 플러그인 write→PTY 에코→onData). perf.echo 명령이 노출한다. */
   echoProbe(): Promise<number>;
 }
 
