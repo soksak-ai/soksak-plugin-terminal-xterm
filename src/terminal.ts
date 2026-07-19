@@ -9,8 +9,13 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { WebkitImeAddon } from "./vendor/xterm-addon-webkit-ime";
 import { themeFor } from "./theme";
 import { createPerfCounters, type PerfSnapshot } from "./perf";
-import type { PtyApi, PluginApi, Disposable } from "./host";
-import { orchestrateRestore, ensureSession } from "./restore";
+import {
+  orchestrateRestore,
+  ensureSession,
+  type PtyApi,
+  type PluginApi,
+  type Disposable,
+} from "soksak-kit-terminal-common";
 
 // VSCode FlowControlConstants.CharCountAckSize 와 동일.
 const FLOW_ACK_SIZE = 5000;

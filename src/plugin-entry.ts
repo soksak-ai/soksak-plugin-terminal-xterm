@@ -4,8 +4,13 @@ import { injectStyles } from "./styles";
 import { terminalStartedActivity, terminalFinishedActivity } from "./activity";
 import { createTerminalInstance } from "./terminal";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
-import { ensureSidecar } from "./restore";
-import type { Disposable, PluginApi, PluginContext, PluginViewContext } from "./host";
+import {
+  ensureSidecar,
+  type Disposable,
+  type PluginApi,
+  type PluginContext,
+  type PluginViewContext,
+} from "soksak-kit-terminal-common";
 import type { TerminalInstance } from "./terminal";
 
 // [단계①] 명령 블록 영속 — 코어 app.data records 에 저장(R1), 복원(R4), retention(R5).
@@ -258,7 +263,7 @@ export default {
             focusStates.set(container, focusState);
             // 코어 substrate 에 등록한 IO 핸들(있으면 dispose 에서 해지). app.terminal.readBuffer/
             // sendText 가 이 viewId(=paneId)로 이 터미널의 버퍼 읽기·입력 쓰기에 닿게 한다.
-            let ioReg: import("./host").Disposable | null = null;
+            let ioReg: Disposable | null = null;
             // 설정은 플러그인 소유(manifest config) — app.settings 에서 effective 값을 읽어 적용.
             const readSettings = (): import("./terminal").TermSettings => {
               const all = app.settings?.all?.() ?? {};

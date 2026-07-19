@@ -3,7 +3,7 @@
 import { describe, it, expect } from "vitest";
 import { createPerfCounters } from "./perf";
 import { registerCommands, registerTerminal, unregisterTerminal } from "./commands";
-import type { PluginContext } from "./host";
+import type { PluginContext } from "soksak-kit-terminal-common";
 import type { TerminalInstance } from "./terminal";
 
 describe("perf counters (순수 가산 — 폴링 0)", () => {

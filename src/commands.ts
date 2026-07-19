@@ -1,5 +1,5 @@
 // terminal.* 명령 — ping / send / clear. 매니페스트 contributes.commands 와 1:1.
-import type { PluginContext } from "./host";
+import type { PluginContext } from "soksak-kit-terminal-common";
 import type { TerminalInstance } from "./terminal";
 
 // 활성 터미널 인스턴스 레지스트리 (viewId → TerminalInstance).
