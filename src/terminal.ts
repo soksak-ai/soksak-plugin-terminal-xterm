@@ -92,6 +92,10 @@ export interface TerminalHandle {
 // kit 의 TerminalRenderer 계약을 구현한다 — 드리프트(계약과 어긋남)는 tsc 가 잡는다. 계측
 // (perfStats/echoProbe)은 계약에선 선택이지만 xterm 은 항상 제공하므로 여기선 필수로 좁힌다.
 export interface TerminalInstance extends TerminalRenderer<TermSettings> {
+  // xterm 은 이 extras 를 항상 제공한다 — 계약에선 선택이지만 여기선 필수로 좁힌다.
+  paste(text: string): void;
+  setScreenSuspended(suspended: boolean): void;
+  applySettings(settings: TermSettings): void;
   perfStats(): PerfSnapshot;
   echoProbe(): Promise<number>;
 }
