@@ -14797,9 +14797,19 @@ async function ensureSession(app, paneId, cols, rows) {
     message: `${t("sidecar.subscribe-timeout", app.locale())} (${paneId})`
   });
 }
-async function orchestrateRestore(app, paneId, writeInert) {
+async function syncMirrorSize(app, paneId, cols, rows) {
+  const pty = app.pty;
+  if (!pty || cols < 1 || rows < 1) return;
+  try {
+    await pty.sidecarRequest({ op: "resize", pane: paneId, cols, rows });
+  } catch {
+  }
+}
+async function orchestrateRestore(app, paneId, writeInert, opts) {
   const pty = app.pty;
   if (!pty) return { replay: "none", painted: false };
+  const cols = opts?.cols;
+  const rows = opts?.rows;
   let warmCandidate = false;
   try {
     warmCandidate = await pty.paneAlive(paneId);
@@ -14807,6 +14817,7 @@ async function orchestrateRestore(app, paneId, writeInert) {
     warmCandidate = false;
   }
   if (warmCandidate) {
+    if (cols && rows) await syncMirrorSize(app, paneId, cols, rows);
     const deadline = Date.now() + 4e3;
     let delay = 100;
     for (; ; ) {
@@ -15311,9 +15322,8 @@ async function createPaneSplitHost(opts) {
       return tree;
     },
     async dispose() {
-      for (const { renderer } of hosts.values())
-        await renderer.dispose({ keepSession: true }).catch(() => {
-        });
+      for (const { renderer } of hosts.values()) await renderer.dispose().catch(() => {
+      });
       hosts.clear();
       container.replaceChildren();
     }
@@ -15397,9 +15407,9 @@ function mountTerminalView(app, opts) {
           });
           if (paneIo) {
             const origDispose = r5.dispose.bind(r5);
-            r5.dispose = async (opts2) => {
+            r5.dispose = async () => {
               paneIo.dispose();
-              await origDispose(opts2);
+              await origDispose();
             };
           }
           return r5;
@@ -15450,7 +15460,7 @@ function mountTerminalView(app, opts) {
       state.disposed = true;
       focus.detach();
       state.io?.dispose();
-      void state.single?.dispose({ keepSession: true });
+      void state.single?.dispose();
       void state.splitHost?.dispose();
       registry.delete(viewId);
     }
@@ -15700,7 +15710,10 @@ async function createTerminal(options) {
   let restorePainted = false;
   let replay = "none";
   if (options.app && options.paneId) {
-    const outcome = await orchestrateRestore(options.app, options.paneId, (d2) => term.write(d2));
+    const outcome = await orchestrateRestore(options.app, options.paneId, (d2) => term.write(d2), {
+      cols: term.cols,
+      rows: term.rows
+    });
     replay = outcome.replay;
     restorePainted = outcome.painted;
     if (outcome.painted) restorePaintPending = true;
@@ -15773,6 +15786,9 @@ async function createTerminal(options) {
     if (termId !== 0) {
       pty.resize(termId, term.cols, term.rows).catch(() => {
       });
+      if (options.app && options.paneId) {
+        void syncMirrorSize(options.app, options.paneId, term.cols, term.rows);
+      }
     }
   };
   const safeFit = () => {
@@ -16178,6 +16194,8 @@ function mountTerminal(container, ctx, vctx) {
     registry: terminalRegistry,
     treeStore,
     // pane 마다 xterm 인스턴스 + 이 pane 의 블록 이력. 첫 pane 만 initialCommand(에이전트 자동 실행).
+    // 복원은 pane 폭에 상관없이 동일하다 — kit orchestrateRestore 가 rehydrate 전 미러를 pane 폭으로
+    // 맞춰 warm 재부착(TUI·스크롤백)을 정확히 되살린다(within-tab 특례 없음).
     createRenderer: (paneId, isFirst) => mountPane(app, {
       vctx,
       paneId,

@@ -62,6 +62,8 @@ function mountTerminal(
     registry: terminalRegistry,
     treeStore,
     // pane 마다 xterm 인스턴스 + 이 pane 의 블록 이력. 첫 pane 만 initialCommand(에이전트 자동 실행).
+    // 복원은 pane 폭에 상관없이 동일하다 — kit orchestrateRestore 가 rehydrate 전 미러를 pane 폭으로
+    // 맞춰 warm 재부착(TUI·스크롤백)을 정확히 되살린다(within-tab 특례 없음).
     createRenderer: (paneId, isFirst) =>
       mountPane(app, {
         vctx,

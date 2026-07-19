@@ -12,6 +12,7 @@ import { createPerfCounters } from "./perf";
 import {
   orchestrateRestore,
   ensureSession,
+  syncMirrorSize,
   type PtyApi,
   type PluginApi,
   type Disposable,
@@ -437,7 +438,11 @@ export async function createTerminal(
   let restorePainted = false;
   let replay: "none" | { fromSeq: number } = "none";
   if (options.app && options.paneId) {
-    const outcome = await orchestrateRestore(options.app, options.paneId, (d) => term.write(d));
+    // pane 현재 치수를 넘겨 rehydrate 전 미러를 이 폭으로 맞추게 한다(폭-정합 재도색).
+    const outcome = await orchestrateRestore(options.app, options.paneId, (d) => term.write(d), {
+      cols: term.cols,
+      rows: term.rows,
+    });
     replay = outcome.replay;
     restorePainted = outcome.painted;
     // 소비자가 detached 중 그린 복원 페인트는 가시화 시 렌더 플러시가 필요하다(위 불변식).
@@ -540,6 +545,12 @@ export async function createTerminal(
   const syncPty = () => {
     if (termId !== 0) {
       pty.resize(termId, term.cols, term.rows).catch(() => {});
+      // 사이드카 미러도 같은 폭으로 맞춘다 — 코어 resize 는 데몬 PTY 만 바꾸고 미러엔 전파하지
+      // 않으므로, 안 맞추면 미러가 실 터미널과 어긋나 다음 warm rehydrate 가 격자를 깬다. best-effort
+      // (계약 resize op, 미러 미구독이면 no-op). 리사이즈 스로틀(50ms)에 얹혀 빈도 제한.
+      if (options.app && options.paneId) {
+        void syncMirrorSize(options.app, options.paneId, term.cols, term.rows);
+      }
     }
   };
   const safeFit = () => {
