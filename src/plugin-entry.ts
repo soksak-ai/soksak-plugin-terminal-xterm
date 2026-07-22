@@ -128,6 +128,9 @@ export default {
             cleanups.get(container)?.();
             cleanups.delete(container);
           },
+          setFocused(_container, vctx, focused) {
+            if (vctx.viewId) mounts.get(vctx.viewId)?.handle.setFocused(focused);
+          },
           prepareFocusTransfer(_container, vctx) {
             if (vctx.viewId) mounts.get(vctx.viewId)?.focus.prepareTransfer();
           },
