@@ -15464,6 +15464,10 @@ function mountTerminalView(app, opts) {
     get splitHost() {
       return state.splitHost;
     },
+    eachRenderer(fn3) {
+      if (state.single) fn3(state.single);
+      for (const [, renderer] of state.splitHost?.entries() ?? []) fn3(renderer);
+    },
     setFocused(focused) {
       state.focused = focused;
       state.splitHost?.setFocused(focused);
@@ -16062,7 +16066,29 @@ async function setupBlockPersistence(app, vctx, viewId, inst) {
   };
 }
 
+// src/view-zoom.ts
+var deltas = /* @__PURE__ */ new Map();
+var MIN_DELTA = -7;
+var MAX_DELTA = 27;
+function viewFontDelta(viewId) {
+  return deltas.get(viewId) ?? 0;
+}
+function stepViewFont(viewId, action) {
+  const next = action === "reset" ? 0 : viewFontDelta(viewId) + (action === "in" ? 1 : -1);
+  const clamped = Math.max(MIN_DELTA, Math.min(MAX_DELTA, next));
+  deltas.set(viewId, clamped);
+  return clamped;
+}
+function dropViewFont(viewId) {
+  deltas.delete(viewId);
+}
+
 // src/mount-pane.ts
+function effectiveSettings(app, viewId) {
+  const base = readSettings(app);
+  const delta = viewId ? viewFontDelta(viewId) : 0;
+  return { ...base, fontSize: (base.fontSize ?? 13) + delta };
+}
 function readSettings(app) {
   const all = app.settings?.all?.() ?? {};
   return {
@@ -16084,10 +16110,12 @@ async function mountPane(app, opts) {
     shell: shell || void 0,
     paneId: opts.paneId,
     initialCommand: opts.initialCommand,
-    settings: readSettings(app)
+    settings: effectiveSettings(app, opts.vctx.viewId ?? null)
   });
   const extra = [];
-  const unSettings = app.settings?.onChange?.(() => inst.applySettings(readSettings(app)));
+  const unSettings = app.settings?.onChange?.(
+    () => inst.applySettings(effectiveSettings(app, opts.vctx.viewId ?? null))
+  );
   if (unSettings) extra.push(unSettings);
   const blockDisp = await setupBlockPersistence(app, opts.vctx, opts.paneId, inst).catch(
     (err) => {
@@ -16221,6 +16249,7 @@ function mountTerminal(container, ctx, vctx) {
   return () => {
     handle.dispose();
     mounts.delete(viewId);
+    dropViewFont(viewId);
     container.replaceChildren();
   };
 }
@@ -16269,6 +16298,15 @@ var plugin_entry_default = {
           },
           focus(_container, vctx, request) {
             if (vctx.viewId) mounts.get(vctx.viewId)?.focus.request(request);
+          },
+          zoom(_container, vctx, action) {
+            const viewId = vctx.viewId;
+            if (!viewId) return;
+            const m2 = mounts.get(viewId);
+            if (!m2) return;
+            stepViewFont(viewId, action);
+            const next = effectiveSettings(app, viewId);
+            m2.handle.eachRenderer((r5) => r5.applySettings?.(next));
           }
         })
       );

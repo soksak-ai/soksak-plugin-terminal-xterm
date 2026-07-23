@@ -3,7 +3,8 @@
 // IO/포커스/명령 레지스트리·정리·split-pane 명령)은 kit(mountTerminalView·registerPaneCommands)이
 // 소유하고, 여기는 렌더러 팩토리(mountPane: xterm 인스턴스 + 블록 이력)와 뷰 컨테이너·제목만 준다.
 import { injectStyles } from "./styles";
-import { mountPane } from "./mount-pane";
+import { effectiveSettings, mountPane } from "./mount-pane";
+import { dropViewFont, stepViewFont } from "./view-zoom";
 import { registerCommands, terminalRegistry } from "./commands";
 import {
   ensureSidecar,
@@ -79,6 +80,7 @@ function mountTerminal(
   return () => {
     handle.dispose();
     mounts.delete(viewId);
+    dropViewFont(viewId);
     container.replaceChildren();
   };
 }
@@ -136,6 +138,16 @@ export default {
           },
           focus(_container, vctx, request) {
             if (vctx.viewId) mounts.get(vctx.viewId)?.focus.request(request);
+          },
+          zoom(_container, vctx, action) {
+            // 뷰-단위 폰트 줌(§Zoom) — 델타 스텝 후 이 뷰의 모든 렌더러에 유효 설정 재적용.
+            const viewId = vctx.viewId;
+            if (!viewId) return;
+            const m = mounts.get(viewId);
+            if (!m) return;
+            stepViewFont(viewId, action);
+            const next = effectiveSettings(app, viewId);
+            m.handle.eachRenderer((r) => r.applySettings?.(next));
           },
         }),
       );

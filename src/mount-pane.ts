@@ -4,6 +4,7 @@
 // 호출자는 renderer.dispose() 하나로 전부 정리된다. DOM 부착은 호출자 몫(여긴 element 만 만든다).
 import { createTerminalInstance, type TerminalInstance, type TermSettings } from "./terminal";
 import { setupBlockPersistence } from "./command-block-persistence";
+import { viewFontDelta } from "./view-zoom";
 import type {
   PluginApi,
   PluginViewContext,
@@ -11,6 +12,13 @@ import type {
 } from "soksak-kit-terminal-common";
 
 // 설정은 플러그인 소유(manifest config) — app.settings 에서 effective 값을 읽어 TermSettings 로.
+/** 뷰 델타(줌)까지 합성한 유효 설정 — 설정 변경 라이브 재적용과 줌이 같은 값을 본다. */
+export function effectiveSettings(app: PluginApi, viewId: string | null): TermSettings {
+  const base = readSettings(app);
+  const delta = viewId ? viewFontDelta(viewId) : 0;
+  return { ...base, fontSize: (base.fontSize ?? 13) + delta };
+}
+
 export function readSettings(app: PluginApi): TermSettings {
   const all = app.settings?.all?.() ?? {};
   return {
@@ -42,13 +50,15 @@ export async function mountPane(
     shell: shell || undefined,
     paneId: opts.paneId,
     initialCommand: opts.initialCommand,
-    settings: readSettings(app),
+    settings: effectiveSettings(app, opts.vctx.viewId ?? null),
   });
 
   // pane 수명에 묶이는 정리물 — 인스턴스 dispose 에 합성한다(호출자·split 호스트가 pane 을
   // 닫을 때 함께 해지). 설정 변경 라이브 재적용은 pane 마다 구독(각자 자기 inst 에 applySettings).
   const extra: Disposable[] = [];
-  const unSettings = app.settings?.onChange?.(() => inst.applySettings(readSettings(app)));
+  const unSettings = app.settings?.onChange?.(() =>
+    inst.applySettings(effectiveSettings(app, opts.vctx.viewId ?? null)),
+  );
   if (unSettings) extra.push(unSettings);
   // 명령 블록 복원(R4)+저장(R3) — "data" 권한 있을 때만. 키=paneId(pane 별 이력), scope=projectId.
   // 실패를 삼키지 않는다 — 권한 게이트 throw 가 조용히 증발해 저장·복원이 죽은 채 발견이 늦던 실측 결함.
