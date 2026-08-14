@@ -39,6 +39,9 @@ type Status struct {
 }
 
 type OutputSink interface{ EmitTerminalOutput(Output) }
+type InputTraceSink interface {
+	EmitTerminalInputTrace(Handle, InputTrace)
+}
 
 type session struct {
 	generation uint64
@@ -183,14 +186,18 @@ func (service *Service) Close(handle Handle) error {
 
 func (service *Service) TraceInput(handle Handle, event InputTrace) error {
 	service.mu.Lock()
-	defer service.mu.Unlock()
 	value := service.sessions[handle.ID]
 	if value == nil || value.generation != handle.Generation {
+		service.mu.Unlock()
 		return fmt.Errorf("terminal owner does not exist: %s/%d", handle.ID, handle.Generation)
 	}
 	value.inputTrace = append(value.inputTrace, event)
 	if len(value.inputTrace) > 64 {
 		value.inputTrace = append([]InputTrace(nil), value.inputTrace[len(value.inputTrace)-64:]...)
+	}
+	service.mu.Unlock()
+	if sink, ok := service.sink.(InputTraceSink); ok {
+		sink.EmitTerminalInputTrace(handle, event)
 	}
 	return nil
 }
