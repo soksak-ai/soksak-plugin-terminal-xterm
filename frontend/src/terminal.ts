@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
 import { createSerialTerminalWriter, routeXtermData } from "./input";
+import { attachTerminalInputTrace, type BrowserInputTrace, type TerminalInputTrace } from "./inputTrace";
 import { terminalBytes } from "./stream";
 import { WebkitImeAddon } from "./vendor/webkitIme";
 
@@ -13,6 +14,7 @@ export type TerminalBinding = {
   write(handle: TerminalHandle, data: string): Promise<void>;
   resize(handle: TerminalHandle, cols: number, rows: number): Promise<void>;
   close(handle: TerminalHandle): Promise<void>;
+  traceInput(handle: TerminalHandle, event: TerminalInputTrace): Promise<void>;
 };
 export type TerminalEvents = { onOutput(callback: (output: TerminalOutput) => void): () => void };
 
@@ -30,12 +32,36 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
   host.dataset.terminalIme = "webkit";
   let handle: TerminalHandle | null = null;
   let disposed = false;
+  let traceSequence = 0;
+  const pendingTrace: TerminalInputTrace[] = [];
+  const record = (event: BrowserInputTrace): void => {
+    const trace = { ...event, sequence: ++traceSequence };
+    const owner = handle;
+    if (owner) {
+      void binding.traceInput(owner, trace);
+      return;
+    }
+    pendingTrace.push(trace);
+    if (pendingTrace.length > 64) pendingTrace.shift();
+  };
+  const stopInputTrace = terminal.textarea
+    ? attachTerminalInputTrace(terminal.textarea, record)
+    : () => undefined;
 
   const write = createSerialTerminalWriter(async (data) => {
     const owner = handle;
-    if (owner) await binding.write(owner, data);
+    if (owner) {
+      record({ kind: "pty-write", data });
+      await binding.write(owner, data);
+    }
   });
-  const ime = new WebkitImeAddon({ onData: (data) => { void write(data); } });
+  const ime = new WebkitImeAddon({
+    onData: (data) => {
+      record({ kind: "addon-output", data });
+      void write(data);
+    },
+    onDebug: (message) => record({ kind: "addon-debug", message }),
+  });
   terminal.loadAddon(ime);
 
   const resize = () => {
@@ -48,7 +74,10 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
   const stopOutput = events.onOutput((output) => {
     if (handle && output.id === handle.id && output.generation === handle.generation) terminal.write(terminalBytes(output.dataBase64));
   });
-  const input = terminal.onData((data) => { routeXtermData(ime, write, data); });
+  const input = terminal.onData((data) => {
+    record({ kind: "xterm-data", data });
+    routeXtermData(ime, write, data);
+  });
 
   requestAnimationFrame(() => {
     if (disposed || !host.isConnected) return;
@@ -56,6 +85,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     void binding.open(id, terminal.cols || 80, terminal.rows || 24).then((opened) => {
       if (disposed) { void binding.close(opened); return; }
       handle = opened;
+      for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
       resize();
     });
   });
@@ -66,6 +96,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     observer.disconnect();
     stopOutput();
     input.dispose();
+    stopInputTrace();
     ime.dispose();
     if (handle) void binding.close(handle);
     terminal.dispose();

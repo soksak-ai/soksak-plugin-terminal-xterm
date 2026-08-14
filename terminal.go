@@ -21,10 +21,21 @@ type Output struct {
 	Generation uint64 `json:"generation"`
 	DataBase64 string `json:"dataBase64"`
 }
+type InputTrace struct {
+	Sequence    uint64  `json:"sequence"`
+	Kind        string  `json:"kind"`
+	Data        *string `json:"data,omitempty"`
+	InputType   string  `json:"inputType,omitempty"`
+	IsComposing *bool   `json:"isComposing,omitempty"`
+	Key         string  `json:"key,omitempty"`
+	KeyCode     uint16  `json:"keyCode,omitempty"`
+	Message     string  `json:"message,omitempty"`
+}
 type Status struct {
-	ID         string `json:"id"`
-	Generation uint64 `json:"generation"`
-	PID        int    `json:"pid"`
+	ID         string       `json:"id"`
+	Generation uint64       `json:"generation"`
+	PID        int          `json:"pid"`
+	InputTrace []InputTrace `json:"inputTrace"`
 }
 
 type OutputSink interface{ EmitTerminalOutput(Output) }
@@ -33,6 +44,7 @@ type session struct {
 	generation uint64
 	pty        *os.File
 	cmd        *exec.Cmd
+	inputTrace []InputTrace
 }
 type Service struct {
 	mu             sync.Mutex
@@ -169,6 +181,20 @@ func (service *Service) Close(handle Handle) error {
 	return nil
 }
 
+func (service *Service) TraceInput(handle Handle, event InputTrace) error {
+	service.mu.Lock()
+	defer service.mu.Unlock()
+	value := service.sessions[handle.ID]
+	if value == nil || value.generation != handle.Generation {
+		return fmt.Errorf("terminal owner does not exist: %s/%d", handle.ID, handle.Generation)
+	}
+	value.inputTrace = append(value.inputTrace, event)
+	if len(value.inputTrace) > 64 {
+		value.inputTrace = append([]InputTrace(nil), value.inputTrace[len(value.inputTrace)-64:]...)
+	}
+	return nil
+}
+
 func (service *Service) Status() []Status {
 	service.mu.Lock()
 	defer service.mu.Unlock()
@@ -178,7 +204,10 @@ func (service *Service) Status() []Status {
 		if value.cmd != nil && value.cmd.Process != nil {
 			pid = value.cmd.Process.Pid
 		}
-		result = append(result, Status{ID: id, Generation: value.generation, PID: pid})
+		result = append(result, Status{
+			ID: id, Generation: value.generation, PID: pid,
+			InputTrace: append([]InputTrace(nil), value.inputTrace...),
+		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result

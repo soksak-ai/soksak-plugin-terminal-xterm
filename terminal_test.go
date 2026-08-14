@@ -104,8 +104,9 @@ func TestTerminalInputTraceIsGenerationOwnedAndBounded(t *testing.T) {
 	service := NewService(nil, DefaultOptions())
 	service.sessions["leaf-1"] = &session{generation: 7}
 	handle := Handle{ID: "leaf-1", Generation: 7}
+	data := "한"
 	for sequence := uint64(1); sequence <= 70; sequence++ {
-		if err := service.TraceInput(handle, InputTrace{Sequence: sequence, Kind: "input", Data: "한"}); err != nil {
+		if err := service.TraceInput(handle, InputTrace{Sequence: sequence, Kind: "input", Data: &data}); err != nil {
 			t.Fatalf("trace input: %v", err)
 		}
 	}
