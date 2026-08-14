@@ -26,7 +26,7 @@ The terminal host exposes `data-terminal-ime="webkit"` while this owner is
 active.
 
 The WebKit adapter is vendored from `min-median-max/xterm-addon-webkit-ime` at
-commit `48e14fda8f194d6dcf5eeeb6664d2e5e127e1688` under its MIT license. The
+commit `bf2e218ae651f2c8ee01e1fe515679cb8c56bcd2` under its MIT license. The
 upstream repository does not currently publish the `dist` entry declared by
 its package metadata, so the audited source is pinned locally instead of using
 a broken runtime package dependency.

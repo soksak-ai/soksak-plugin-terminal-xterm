@@ -1,5 +1,5 @@
 // Vendored from https://github.com/min-median-max/xterm-addon-webkit-ime
-// Upstream commit: 48e14fda8f194d6dcf5eeeb6664d2e5e127e1688
+// Upstream commit: bf2e218ae651f2c8ee01e1fe515679cb8c56bcd2
 // MIT license: ./LICENSE.xterm-addon-webkit-ime
 
 // ============================================================================
@@ -523,4 +523,3 @@ export class WebkitImeAddon implements ITerminalAddon {
     }
   }
 }
-
