@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 
@@ -39,11 +40,14 @@ type Service struct {
 	nextGeneration uint64
 	sessions       map[string]*session
 	sink           OutputSink
+	stopped        bool
 }
 
 func NewService(sink OutputSink) *Service {
 	return &Service{sessions: make(map[string]*session), sink: sink}
 }
+
+func (service *Service) ServiceName() string { return "soksak-plugin-terminal-xterm" }
 
 func terminalEnvironment(base []string) []string {
 	blocked := map[string]struct{}{"TERM": {}, "COLORTERM": {}, "LANG": {}, "LC_CTYPE": {}}
@@ -66,6 +70,11 @@ func terminalOutput(id string, generation uint64, bytes []byte) Output {
 
 func (service *Service) install(id string, value *session) Handle {
 	service.mu.Lock()
+	if service.stopped {
+		service.mu.Unlock()
+		closeSession(value)
+		return Handle{}
+	}
 	service.nextGeneration++
 	value.generation = service.nextGeneration
 	previous := service.sessions[id]
@@ -116,6 +125,9 @@ func (service *Service) Open(id string, cols, rows uint16) (Handle, error) {
 		return Handle{}, fmt.Errorf("open terminal %s: %w", id, err)
 	}
 	handle := service.install(id, &session{pty: file, cmd: cmd})
+	if handle.Generation == 0 {
+		return Handle{}, fmt.Errorf("terminal service is shutting down")
+	}
 	go service.read(handle, file)
 	return handle, nil
 }
@@ -183,5 +195,28 @@ func (service *Service) Status() []Status {
 		}
 		result = append(result, Status{ID: id, Generation: value.generation, PID: pid})
 	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result
+}
+
+func (service *Service) ServiceShutdown() error {
+	service.mu.Lock()
+	if service.stopped {
+		service.mu.Unlock()
+		return nil
+	}
+	service.stopped = true
+	sessions := service.sessions
+	service.sessions = make(map[string]*session)
+	service.mu.Unlock()
+
+	ids := make([]string, 0, len(sessions))
+	for id := range sessions {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		closeSession(sessions[id])
+	}
+	return nil
 }
