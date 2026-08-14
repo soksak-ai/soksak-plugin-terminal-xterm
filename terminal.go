@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/creack/pty"
@@ -41,28 +40,14 @@ type Service struct {
 	sessions       map[string]*session
 	sink           OutputSink
 	stopped        bool
+	options        Options
 }
 
-func NewService(sink OutputSink) *Service {
-	return &Service{sessions: make(map[string]*session), sink: sink}
+func NewService(sink OutputSink, options Options) *Service {
+	return &Service{sessions: make(map[string]*session), sink: sink, options: options}
 }
 
 func (service *Service) ServiceName() string { return "soksak-plugin-terminal-xterm" }
-
-func terminalEnvironment(base []string) []string {
-	blocked := map[string]struct{}{"TERM": {}, "COLORTERM": {}, "LANG": {}, "LC_CTYPE": {}}
-	result := make([]string, 0, len(base)+4)
-	for _, entry := range base {
-		name := entry
-		if index := strings.IndexByte(entry, '='); index >= 0 {
-			name = entry[:index]
-		}
-		if _, remove := blocked[name]; !remove {
-			result = append(result, entry)
-		}
-	}
-	return append(result, "TERM=xterm-256color", "COLORTERM=truecolor", "LANG=en_US.UTF-8", "LC_CTYPE=en_US.UTF-8")
-}
 
 func terminalOutput(id string, generation uint64, bytes []byte) Output {
 	return Output{ID: id, Generation: generation, DataBase64: base64.StdEncoding.EncodeToString(bytes)}
@@ -119,7 +104,7 @@ func (service *Service) Open(id string, cols, rows uint16) (Handle, error) {
 		shell = "/bin/zsh"
 	}
 	cmd := exec.Command(shell, "-l")
-	cmd.Env = terminalEnvironment(os.Environ())
+	cmd.Env = terminalEnvironment(os.Environ(), service.options.EnvironmentPolicy, service.options.Environment)
 	file, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: cols, Rows: rows})
 	if err != nil {
 		return Handle{}, fmt.Errorf("open terminal %s: %w", id, err)

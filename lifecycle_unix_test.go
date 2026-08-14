@@ -11,7 +11,7 @@ import (
 )
 
 func TestServiceShutdownReapsEveryPTYProcess(t *testing.T) {
-	service := NewService(nil)
+	service := NewService(nil, DefaultOptions())
 	cmd := exec.Command("/bin/sh", "-c", "sleep 60")
 	file, err := pty.Start(cmd)
 	if err != nil {
