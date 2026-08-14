@@ -27,6 +27,7 @@ describe("terminal input ownership", () => {
     const write = createSerialTerminalWriter(async (data) => { calls.push(data); });
     const ime = {
       shouldSkip: (data: string) => data === "ㅎ",
+      shouldFlushPending: () => true,
       flushPending: () => { void write("한"); },
     };
 

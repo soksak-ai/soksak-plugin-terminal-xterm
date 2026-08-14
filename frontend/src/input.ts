@@ -1,5 +1,6 @@
 export type WebkitImeInput = {
   shouldSkip(data: string): boolean;
+  shouldFlushPending(data: string): boolean;
   flushPending(): void;
 };
 
@@ -18,6 +19,6 @@ export function routeXtermData(
   data: string,
 ): void {
   if (ime.shouldSkip(data)) return;
-  ime.flushPending();
+  if (ime.shouldFlushPending(data)) ime.flushPending();
   void write(data);
 }
