@@ -99,3 +99,24 @@ func TestTerminalOutputPreservesRawUTF8AcrossArbitraryPTYChunks(t *testing.T) {
 		t.Fatalf("PTY bytes changed: got=%q want=%q", reconstructed, text)
 	}
 }
+
+func TestTerminalInputTraceIsGenerationOwnedAndBounded(t *testing.T) {
+	service := NewService(nil, DefaultOptions())
+	service.sessions["leaf-1"] = &session{generation: 7}
+	handle := Handle{ID: "leaf-1", Generation: 7}
+	for sequence := uint64(1); sequence <= 70; sequence++ {
+		if err := service.TraceInput(handle, InputTrace{Sequence: sequence, Kind: "input", Data: "한"}); err != nil {
+			t.Fatalf("trace input: %v", err)
+		}
+	}
+	status := service.Status()
+	if len(status) != 1 || len(status[0].InputTrace) != 64 {
+		t.Fatalf("unexpected bounded trace status: %#v", status)
+	}
+	if status[0].InputTrace[0].Sequence != 7 || status[0].InputTrace[63].Sequence != 70 {
+		t.Fatalf("trace did not preserve the latest ordered events: %#v", status[0].InputTrace)
+	}
+	if err := service.TraceInput(Handle{ID: "leaf-1", Generation: 6}, InputTrace{Sequence: 71}); err == nil {
+		t.Fatal("stale terminal generation accepted an input trace")
+	}
+}
