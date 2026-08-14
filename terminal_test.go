@@ -54,6 +54,35 @@ func TestTerminalEnvironmentPolicyOwnsOnlyDeclaredVariables(t *testing.T) {
 	}
 }
 
+func TestTerminalEnvironmentPolicySeparatesSharedCapabilitiesFromPlatformLocale(t *testing.T) {
+	darwin := defaultEnvironmentPolicy("darwin")
+	windows := defaultEnvironmentPolicy("windows")
+	for _, policy := range []EnvironmentPolicy{darwin, windows} {
+		if policy.Defaults["TERM"] != "xterm-256color" || policy.Defaults["COLORTERM"] != "truecolor" {
+			t.Fatalf("xterm capability defaults must be shared across platforms: %#v", policy)
+		}
+	}
+	if darwin.Defaults["LANG"] != "en_US.UTF-8" || darwin.Defaults["LC_CTYPE"] != "en_US.UTF-8" {
+		t.Fatalf("darwin policy must own its UTF-8 locale: %#v", darwin)
+	}
+	if _, exists := windows.Defaults["LANG"]; exists {
+		t.Fatalf("windows policy must not invent a Unix locale: %#v", windows)
+	}
+	if !windows.CaseInsensitiveNames {
+		t.Fatalf("windows environment names must be matched case-insensitively: %#v", windows)
+	}
+
+	environment := terminalEnvironment(
+		[]string{"Path=C:\\Windows", "term=dumb", "no_color=1"},
+		windows,
+		nil,
+	)
+	joined := strings.Join(environment, "\n")
+	if strings.Contains(strings.ToLower(joined), "no_color=") || strings.Contains(strings.ToLower(joined), "term=dumb") {
+		t.Fatalf("windows policy did not replace case-insensitive inherited keys: %v", environment)
+	}
+}
+
 func TestTerminalOutputPreservesRawUTF8AcrossArbitraryPTYChunks(t *testing.T) {
 	text := []byte("경계 ── ✓")
 	chunks := [][]byte{text[:1], text[1:4], text[4:7], text[7:]}
