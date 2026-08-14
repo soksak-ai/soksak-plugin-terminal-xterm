@@ -15,3 +15,18 @@ The service applies environment values in this order: inherited process
 environment, plugin policy, then `Options.Environment`. Explicit application
 values therefore override plugin defaults, including an intentional
 `NO_COLOR=1`. Unrelated inherited values are retained.
+
+## WebKit IME contract
+
+The frontend owns the WKWebView Korean/CJK composition boundary. It routes the
+standard composition path through xterm, intercepts WebKit's non-standard
+`insertText`/`insertReplacementText` path, suppresses leaked partial jamo, and
+serializes finalized text with following PTY writes so input order cannot race.
+The terminal host exposes `data-terminal-ime="webkit"` while this owner is
+active.
+
+The WebKit adapter is vendored from `min-median-max/xterm-addon-webkit-ime` at
+commit `48e14fda8f194d6dcf5eeeb6664d2e5e127e1688` under its MIT license. The
+upstream repository does not currently publish the `dist` entry declared by
+its package metadata, so the audited source is pinned locally instead of using
+a broken runtime package dependency.
