@@ -14,6 +14,9 @@ importers:
       '@xterm/xterm':
         specifier: ^5.5.0
         version: 5.5.0
+      xterm-addon-webkit-ime:
+        specifier: github:min-median-max/xterm-addon-webkit-ime#4d00ed700ee26f58250955f68bc8b552b2996645
+        version: https://codeload.github.com/min-median-max/xterm-addon-webkit-ime/tar.gz/4d00ed700ee26f58250955f68bc8b552b2996645(@xterm/xterm@5.5.0)
     devDependencies:
       '@types/node':
         specifier: ^24.10.0
@@ -602,6 +605,18 @@ packages:
     engines: {node: '>=8'}
     hasBin: true
 
+  xterm-addon-webkit-ime@https://codeload.github.com/min-median-max/xterm-addon-webkit-ime/tar.gz/4d00ed700ee26f58250955f68bc8b552b2996645:
+    resolution: {tarball: https://codeload.github.com/min-median-max/xterm-addon-webkit-ime/tar.gz/4d00ed700ee26f58250955f68bc8b552b2996645}
+    version: 0.1.0
+    peerDependencies:
+      '@xterm/xterm': '>=5.0.0'
+      xterm: '>=5.0.0'
+    peerDependenciesMeta:
+      '@xterm/xterm':
+        optional: true
+      xterm:
+        optional: true
+
 snapshots:
 
   '@esbuild/aix-ppc64@0.28.2':
@@ -1054,3 +1069,7 @@ snapshots:
     dependencies:
       siginfo: 2.0.0
       stackback: 0.0.2
+
+  xterm-addon-webkit-ime@https://codeload.github.com/min-median-max/xterm-addon-webkit-ime/tar.gz/4d00ed700ee26f58250955f68bc8b552b2996645(@xterm/xterm@5.5.0):
+    optionalDependencies:
+      '@xterm/xterm': 5.5.0

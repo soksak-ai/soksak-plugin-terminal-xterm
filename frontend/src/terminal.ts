@@ -5,7 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { attachTerminalInputTrace, type BrowserInputTrace, type TerminalInputTrace } from "./inputTrace";
 import { terminalBytes } from "./stream";
-import { WebkitImeAddon } from "./vendor/webkitIme";
+import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 
 export type TerminalHandle = { id: string; generation: number };
 export type TerminalOutput = TerminalHandle & { dataBase64: string };
