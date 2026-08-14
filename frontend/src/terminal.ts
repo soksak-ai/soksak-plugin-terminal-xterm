@@ -2,7 +2,9 @@ import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 
+import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { terminalBytes } from "./stream";
+import { WebkitImeAddon } from "./vendor/webkitIme";
 
 export type TerminalHandle = { id: string; generation: number };
 export type TerminalOutput = TerminalHandle & { dataBase64: string };
@@ -25,8 +27,16 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   terminal.open(host);
+  host.dataset.terminalIme = "webkit";
   let handle: TerminalHandle | null = null;
   let disposed = false;
+
+  const write = createSerialTerminalWriter(async (data) => {
+    const owner = handle;
+    if (owner) await binding.write(owner, data);
+  });
+  const ime = new WebkitImeAddon({ onData: (data) => { void write(data); } });
+  terminal.loadAddon(ime);
 
   const resize = () => {
     if (!host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
@@ -38,7 +48,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
   const stopOutput = events.onOutput((output) => {
     if (handle && output.id === handle.id && output.generation === handle.generation) terminal.write(terminalBytes(output.dataBase64));
   });
-  const input = terminal.onData((data) => { if (handle) void binding.write(handle, data); });
+  const input = terminal.onData((data) => { routeXtermData(ime, write, data); });
 
   requestAnimationFrame(() => {
     if (disposed || !host.isConnected) return;
@@ -56,7 +66,9 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     observer.disconnect();
     stopOutput();
     input.dispose();
+    ime.dispose();
     if (handle) void binding.close(handle);
     terminal.dispose();
+    delete host.dataset.terminalIme;
   };
 }
