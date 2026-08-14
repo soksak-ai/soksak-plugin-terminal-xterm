@@ -36,4 +36,19 @@ describe("terminal input ownership", () => {
 
     expect(calls).toEqual(["한", " ", "끝"]);
   });
+
+  it("does not flush pending IME text for terminal protocol replies emitted by a TUI", async () => {
+    const calls: string[] = [];
+    const write = createSerialTerminalWriter(async (data) => { calls.push(data); });
+    const ime = {
+      shouldSkip: () => false,
+      shouldFlushPending: (data: string) => !/^\u001b\[\?[0-9;]+[Rc]$/.test(data),
+      flushPending: () => { void write("한"); },
+    };
+
+    routeXtermData(ime, write, "\u001b[?30;3R");
+    await write("끝");
+
+    expect(calls).toEqual(["\u001b[?30;3R", "끝"]);
+  });
 });
