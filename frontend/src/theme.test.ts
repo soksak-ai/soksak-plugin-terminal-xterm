@@ -35,16 +35,21 @@ describe("terminal theme", () => {
     });
   });
 
-  it("reports a change once per theme epoch", () => {
+  it("reports a change once per theme epoch", async () => {
     const root = document.documentElement;
     root.dataset.themeEpoch = "1";
     const seen: number[] = [];
     const stop = observeTerminalTheme(root, () => seen.push(Number(root.dataset.themeEpoch)));
 
+    // Mutation records arrive in a microtask, so each epoch is awaited rather
+    // than read back synchronously; batching two would report one change.
     root.dataset.themeEpoch = "2";
+    await Promise.resolve();
     root.dataset.themeEpoch = "3";
+    await Promise.resolve();
     stop();
     root.dataset.themeEpoch = "4";
+    await Promise.resolve();
 
     // Colours arrive as inline custom properties, so watching the whole style
     // attribute would also fire for zoom and every unrelated change — in the
@@ -53,13 +58,14 @@ describe("terminal theme", () => {
     expect(seen).toEqual([2, 3]);
   });
 
-  it("ignores style mutations that are not a theme change", () => {
+  it("ignores style mutations that are not a theme change", async () => {
     const root = document.documentElement;
     root.dataset.themeEpoch = "1";
     let calls = 0;
     const stop = observeTerminalTheme(root, () => { calls += 1; });
 
     root.style.setProperty("--app-font-size", "15px");
+    await Promise.resolve();
     stop();
 
     expect(calls).toBe(0);

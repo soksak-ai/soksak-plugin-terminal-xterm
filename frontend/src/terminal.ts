@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { attachTerminalInputTrace, type BrowserInputTrace, type TerminalInputTrace } from "./inputTrace";
 import { terminalBytes } from "./stream";
+import { observeTerminalTheme, readTerminalTheme } from "./theme";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 
 export type TerminalHandle = { id: string; generation: number };
@@ -19,12 +20,18 @@ export type TerminalBinding = {
 export type TerminalEvents = { onOutput(callback: (output: TerminalOutput) => void): () => void };
 
 export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBinding, events: TerminalEvents): () => void {
+  // Colours belong to the host. The terminal reads its slots and follows them,
+  // so a theme change reaches the glyphs instead of stopping at the chrome.
+  const themeRoot = host.ownerDocument.documentElement;
   const terminal = new Terminal({
     cursorBlink: true,
     convertEol: true,
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
     fontSize: 13,
-    theme: { background: "#0b0d10", foreground: "#d7e0ea", cursor: "#ff9f6e" },
+    theme: readTerminalTheme(themeRoot),
+  });
+  const stopTheme = observeTerminalTheme(themeRoot, () => {
+    terminal.options.theme = readTerminalTheme(themeRoot);
   });
   const fit = new FitAddon();
   terminal.loadAddon(fit);
@@ -94,6 +101,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     if (disposed) return;
     disposed = true;
     observer.disconnect();
+    stopTheme();
     stopOutput();
     input.dispose();
     stopInputTrace();
