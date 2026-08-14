@@ -1,4 +1,4 @@
-module github.com/soksak/soksak-terminal-xterm
+module github.com/soksak/soksak-plugin-terminal-xterm
 
 go 1.24
 
