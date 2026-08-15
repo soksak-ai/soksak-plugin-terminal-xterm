@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
     "target": "ES2022", "lib": ["ESNext", "DOM"], "module": "ESNext",
-    "moduleResolution": "Bundler", "strict": true, "skipLibCheck": true, "noEmit": true
+    "moduleResolution": "Bundler", "strict": true, "skipLibCheck": true, "noEmit": true,
+    "resolveJsonModule": true
   },
-  "include": ["src"]
+  "include": ["src", "../plugin.json"]
 }
