@@ -9,7 +9,7 @@ export interface TerminalTheme {
   background: string;
   foreground: string;
   cursor: string;
-  /** The glyph under the block cursor: the surface it sits on. */
+  /** The glyph under the block cursor: the colour drawn behind it. */
   cursorAccent: string;
   selectionBackground: string;
 }
@@ -21,7 +21,7 @@ const slot = (root: HTMLElement, name: string): string =>
  * Read the current terminal colours from the host token slots.
  *
  * The pane surface is `card`, not `bg`: the terminal fills a pane, and a pane
- * sits on the window background rather than being it.
+ * is drawn over the window background rather than being it.
  */
 export function readTerminalTheme(root: HTMLElement = document.documentElement): TerminalTheme {
   const background = slot(root, "card");
