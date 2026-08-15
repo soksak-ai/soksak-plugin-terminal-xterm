@@ -10,6 +10,8 @@ import (
 	"sync"
 
 	"github.com/creack/pty"
+
+	"github.com/soksak/soksak-core/core/control"
 )
 
 type Handle struct {
@@ -38,12 +40,25 @@ type Status struct {
 	InputTrace []InputTrace `json:"inputTrace"`
 }
 
-type OutputSink interface{ EmitTerminalOutput(Output) }
+// OutputSink delivers one frame to the receiver the caller passed when it opened
+// the session.
+//
+// The stream id comes from the caller, not from this package, and the sink has
+// no terminal-specific part: a host that can deliver a frame to a stream can
+// deliver any backend's frames. A fixed event name per feature would make the
+// frontend refuse every event nobody declared — measured 2026-08-15, this
+// package emitted terminal:output and the plugin bus refused it by name.
+type OutputSink interface {
+	EmitStream(stream string, frame any)
+}
 type InputTraceSink interface {
 	EmitTerminalInputTrace(Handle, InputTrace)
 }
 
 type session struct {
+	// stream is where this session's bytes go. Empty means the caller opened
+	// it with no receiver and produces no frames.
+	stream     string
 	generation uint64
 	pty        *os.File
 	cmd        *exec.Cmd
@@ -66,6 +81,17 @@ func (service *Service) ServiceName() string { return "soksak-plugin-terminal-xt
 
 func terminalOutput(id string, generation uint64, bytes []byte) Output {
 	return Output{ID: id, Generation: generation, DataBase64: base64.StdEncoding.EncodeToString(bytes)}
+}
+
+// send delivers one frame to the session's receiver.
+//
+// A session opened with no receiver produces no frames. That is a caller who
+// asked for a shell and not for its bytes, which the sok round-trip tests do.
+func (service *Service) send(stream string, frame any) {
+	if stream == "" || service.sink == nil {
+		return
+	}
+	service.sink.EmitStream(stream, frame)
 }
 
 func (service *Service) install(id string, value *session) Handle {
@@ -110,7 +136,12 @@ func closeSession(value *session) {
 	}
 }
 
-func (service *Service) Open(id string, cols, rows uint16) (Handle, error) {
+// Open starts a shell for id and sends its bytes to stream.
+//
+// An empty stream opens a shell nobody reads. The caller asked for a process,
+// not for its output, and that is what a round-trip check over the control
+// plane does.
+func (service *Service) Open(id string, stream string, cols, rows uint16) (Handle, error) {
 	if id == "" || cols == 0 || rows == 0 {
 		return Handle{}, fmt.Errorf("terminal identity and size are required")
 	}
@@ -124,24 +155,24 @@ func (service *Service) Open(id string, cols, rows uint16) (Handle, error) {
 	if err != nil {
 		return Handle{}, fmt.Errorf("open terminal %s: %w", id, err)
 	}
-	handle := service.install(id, &session{pty: file, cmd: cmd})
+	handle := service.install(id, &session{pty: file, cmd: cmd, stream: stream})
 	if handle.Generation == 0 {
 		return Handle{}, fmt.Errorf("terminal service is shutting down")
 	}
-	go service.read(handle, file)
+	go service.read(handle, stream, file)
 	return handle, nil
 }
 
-func (service *Service) read(handle Handle, file *os.File) {
+func (service *Service) read(handle Handle, stream string, file *os.File) {
 	buffer := make([]byte, 32*1024)
 	for {
 		count, err := file.Read(buffer)
-		if count > 0 && service.sink != nil {
-			service.sink.EmitTerminalOutput(terminalOutput(handle.ID, handle.Generation, buffer[:count]))
+		if count > 0 {
+			service.send(stream, control.Bytes(buffer[:count]))
 		}
 		if err != nil {
-			if err != io.EOF && service.sink != nil {
-				service.sink.EmitTerminalOutput(terminalOutput(handle.ID, handle.Generation, []byte("\r\n[terminal closed]\r\n")))
+			if err != io.EOF {
+				service.send(stream, control.Bytes([]byte("\r\n[terminal closed]\r\n")))
 			}
 			closeSession(service.release(handle.ID, handle.Generation))
 			return
