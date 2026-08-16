@@ -21,7 +21,7 @@
   ],
   "consumes": [
     {
-      "id": "soksak-spec-plugin-sidebar-file-tree",
+      "id": "sidebar-file-tree",
       "range": "^0.0.1"
     }
   ],
