@@ -6948,22 +6948,13 @@ var plugin_default = {
         },
         icon: ">_",
         placements: [
-          "content"
+          "center"
         ],
-        defaultPlacement: "content",
+        defaultPlacement: "center",
         status: [
           "connecting",
           "error"
-        ],
-        sidebar: {
-          left: [
-            {
-              view: "tree",
-              instance: "shared",
-              plugin: "soksak-plugin-file-tree"
-            }
-          ]
-        }
+        ]
       }
     ]
   }
