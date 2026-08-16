@@ -25,7 +25,7 @@ import (
 func TestBytesWrittenThroughTheCommandSurfaceReachARealShell(t *testing.T) {
 	const marker = "SOKSAK_G1_ROUNDTRIP"
 
-	const stream = "s-roundtrip"
+	const stream = "stm-r7k2qx"
 	sink := &recordingSink{arrived: make(chan struct{}, 1), want: marker, stream: stream}
 	service := NewService(sink, DefaultOptions())
 	t.Cleanup(func() { _ = service.ServiceShutdown() })

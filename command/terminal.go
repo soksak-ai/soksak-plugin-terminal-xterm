@@ -19,10 +19,12 @@
 package command
 
 import (
+	"strconv"
 	"strings"
 	"fmt"
 
 	"github.com/soksak/soksak-core/core/control"
+	"github.com/soksak/soksak-core/core/i18n"
 )
 
 // Sessions is the base contract every terminal owner satisfies.
@@ -244,8 +246,7 @@ func Register(registry *control.Registry, deps Deps) {
 				if !placed {
 					name = "shell"
 				}
-				return nil, fmt.Errorf("%s: argument %q is set and this terminal owner cannot honour it — "+
-					"disregarding it would start the shell somewhere the caller did not ask for, with no way to tell", command, name)
+				return nil, i18n.Errorf("terminal.open.placementUnsupported", map[string]string{"command": command, "name": name})
 			}
 			handle, err = placement.OpenAt(key, cols, rows, cwd, shell)
 		default:
@@ -361,7 +362,12 @@ func Register(registry *control.Registry, deps Deps) {
 			closed++
 		}
 		if len(failures) > 0 {
-			return nil, fmt.Errorf("%s: %d closed, %d left running (%s)", command, closed, len(failures), strings.Join(failures, "; "))
+			return nil, i18n.Errorf("terminal.closeWindow.someLeftRunning", map[string]string{
+				"command": command,
+				"closed":  strconv.Itoa(closed),
+				"running": strconv.Itoa(len(failures)),
+				"detail":  strings.Join(failures, "; "),
+			})
 		}
 		return Closed{Window: windowLabel, Closed: closed}, nil
 	})
@@ -453,7 +459,7 @@ func Register(registry *control.Registry, deps Deps) {
 func held(command string, sessions *table, id uint32) (entry, error) {
 	found, exists := sessions.lookup(id)
 	if !exists {
-		return entry{}, fmt.Errorf("%s: no session %d — it was never opened here, or it was closed or replaced", command, id)
+		return entry{}, i18n.Errorf("terminal.session.unknown", map[string]string{"command": command, "id": strconv.FormatUint(uint64(id), 10)})
 	}
 	return found, nil
 }

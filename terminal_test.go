@@ -84,7 +84,7 @@ func TestTerminalEnvironmentPolicySeparatesSharedCapabilitiesFromPlatformLocale(
 }
 
 func TestTerminalOutputPreservesRawUTF8AcrossArbitraryPTYChunks(t *testing.T) {
-	text := []byte("경계 ── ✓")
+	text := []byte("── boundary ✓")
 	chunks := [][]byte{text[:1], text[1:4], text[4:7], text[7:]}
 	var reconstructed []byte
 	for _, chunk := range chunks {
@@ -104,7 +104,7 @@ func TestTerminalInputTraceIsGenerationOwnedAndBounded(t *testing.T) {
 	service := NewService(nil, DefaultOptions())
 	service.sessions["leaf-1"] = &session{generation: 7}
 	handle := Handle{ID: "leaf-1", Generation: 7}
-	data := "한"
+	data := "✓"
 	for sequence := uint64(1); sequence <= 70; sequence++ {
 		if err := service.TraceInput(handle, InputTrace{Sequence: sequence, Kind: "input", Data: &data}); err != nil {
 			t.Fatalf("trace input: %v", err)

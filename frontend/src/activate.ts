@@ -69,7 +69,7 @@ export function activate(ctx: ActivateContext): void {
   ctx.subscriptions.push(view);
 
   register(app, ctx, "clear", {
-    description: "Clear this terminal's screen. The shell keeps running.",
+    description: t("terminal.clear.description", app.locale()),
     params: {},
     returns: "{ cleared }",
     message: () => t("terminal.cleared", app.locale()),
@@ -82,7 +82,7 @@ export function activate(ctx: ActivateContext): void {
   });
 
   register(app, ctx, "send", {
-    description: "Write text to this terminal as if it had been typed.",
+    description: t("terminal.send.description", app.locale()),
     params: { data: { type: "string", description: "Text to write", required: true } },
     returns: "{ sent }",
     danger: "inject",

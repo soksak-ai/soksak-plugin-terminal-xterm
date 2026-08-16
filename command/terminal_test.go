@@ -359,10 +359,10 @@ func TestSpawnCarriesTheReceiverToTheOwner(t *testing.T) {
 	registry := registered(t, owner)
 
 	args := pane("w-1", "v2", 80, 24)
-	args["onOutput"] = raw(`{"__stream":"s-7"}`)
+	args["onOutput"] = raw(`{"__stream":"stm-7k2qx3"}`)
 	spawn(t, registry, args)
 
-	if owner.opens[0].stream != "s-7" {
+	if owner.opens[0].stream != "stm-7k2qx3" {
 		t.Errorf("stream = %q, want s-7", owner.opens[0].stream)
 	}
 }
@@ -457,7 +457,7 @@ func TestWriteForwardsBytesVerbatim(t *testing.T) {
 	spawned := spawn(t, registry, pane("w-1", "v2", 80, 24))
 	id := raw(fmt.Sprintf("%d", spawned.ID))
 
-	for _, want := range []string{"ls\r", "", "\x1b[A", "  trailing  ", "한글"} {
+	for _, want := range []string{"ls\r", "", "\x1b[A", "  trailing  ", "multibyte ✓"} {
 		if _, err := registry.Invoke("write_terminal", control.Args{"id": id, "data": jsonString(t, want)}); err != nil {
 			t.Fatalf("write_terminal %q: %v", want, err)
 		}
@@ -466,7 +466,7 @@ func TestWriteForwardsBytesVerbatim(t *testing.T) {
 	if len(owner.writes) != 5 {
 		t.Fatalf("writes = %d, want 5", len(owner.writes))
 	}
-	for index, want := range []string{"ls\r", "", "\x1b[A", "  trailing  ", "한글"} {
+	for index, want := range []string{"ls\r", "", "\x1b[A", "  trailing  ", "multibyte ✓"} {
 		if owner.writes[index].data != want {
 			t.Fatalf("write %d = %q, want %q", index, owner.writes[index].data, want)
 		}

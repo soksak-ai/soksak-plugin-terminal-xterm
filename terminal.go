@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"sync"
 
 	"github.com/creack/pty"
 
 	"github.com/soksak/soksak-core/core/control"
+	"github.com/soksak/soksak-core/core/i18n"
 )
 
 type Handle struct {
@@ -143,7 +145,7 @@ func closeSession(value *session) {
 // plane does.
 func (service *Service) Open(id string, stream string, cols, rows uint16) (Handle, error) {
 	if id == "" || cols == 0 || rows == 0 {
-		return Handle{}, fmt.Errorf("terminal identity and size are required")
+		return Handle{}, i18n.Errorf("terminal.open.identityAndSize", nil)
 	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
@@ -157,7 +159,7 @@ func (service *Service) Open(id string, stream string, cols, rows uint16) (Handl
 	}
 	handle := service.install(id, &session{pty: file, cmd: cmd, stream: stream})
 	if handle.Generation == 0 {
-		return Handle{}, fmt.Errorf("terminal service is shutting down")
+		return Handle{}, i18n.Errorf("terminal.open.shuttingDown", nil)
 	}
 	go service.read(handle, stream, file)
 	return handle, nil
@@ -185,7 +187,10 @@ func (service *Service) current(handle Handle) (*session, error) {
 	defer service.mu.Unlock()
 	value := service.sessions[handle.ID]
 	if value == nil || value.generation != handle.Generation || value.pty == nil {
-		return nil, fmt.Errorf("terminal owner does not exist: %s/%d", handle.ID, handle.Generation)
+		return nil, i18n.Errorf("terminal.session.noOwner", map[string]string{
+			"id":         handle.ID,
+			"generation": strconv.FormatUint(handle.Generation, 10),
+		})
 	}
 	return value, nil
 }
@@ -201,7 +206,7 @@ func (service *Service) Write(handle Handle, data string) error {
 
 func (service *Service) Resize(handle Handle, cols, rows uint16) error {
 	if cols == 0 || rows == 0 {
-		return fmt.Errorf("terminal size must be non-zero")
+		return i18n.Errorf("terminal.resize.zeroSize", nil)
 	}
 	value, err := service.current(handle)
 	if err != nil {
@@ -220,7 +225,10 @@ func (service *Service) TraceInput(handle Handle, event InputTrace) error {
 	value := service.sessions[handle.ID]
 	if value == nil || value.generation != handle.Generation {
 		service.mu.Unlock()
-		return fmt.Errorf("terminal owner does not exist: %s/%d", handle.ID, handle.Generation)
+		return i18n.Errorf("terminal.session.noOwner", map[string]string{
+			"id":         handle.ID,
+			"generation": strconv.FormatUint(handle.Generation, 10),
+		})
 	}
 	value.inputTrace = append(value.inputTrace, event)
 	if len(value.inputTrace) > 64 {

@@ -22,6 +22,14 @@ const MESSAGES = {
     en: "This pane holds no terminal session yet",
     ko: "이 판에는 아직 터미널 세션이 없습니다",
   },
+  "terminal.clear.description": {
+    en: "Clear this terminal's screen. The shell keeps running.",
+    ko: "이 터미널 화면을 지웁니다. 셸은 계속 실행됩니다.",
+  },
+  "terminal.send.description": {
+    en: "Write text to this terminal as if it had been typed.",
+    ko: "직접 입력한 것처럼 이 터미널에 텍스트를 씁니다.",
+  },
 } as const;
 
 export type MessageKey = keyof typeof MESSAGES;

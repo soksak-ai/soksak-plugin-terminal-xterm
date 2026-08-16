@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/soksak/soksak-core/core/i18n"
 )
 
 // Session identity: what a caller holds, what the owner holds, and how the two
@@ -42,7 +44,7 @@ type Handle struct {
 // second key for one window rather than describe a difference that exists.
 func paneKey(command, windowLabel, paneID string) (string, error) {
 	if paneID == "" {
-		return "", fmt.Errorf("%s: argument %q is empty — a pane id that names nothing cannot key a session (send no paneId at all for a session with no reattach key)", command, "paneId")
+		return "", i18n.Errorf("terminal.session.emptyPaneID", map[string]string{"command": command, "name": "paneId"})
 	}
 	// Two halves that may each carry the separator do not derive one key:
 	// ("w-1/a", "b") and ("w-1", "a/b") would both produce "w-1/a/b", and then
@@ -51,7 +53,7 @@ func paneKey(command, windowLabel, paneID string) (string, error) {
 		return "", err
 	}
 	if strings.Contains(paneID, separator) {
-		return "", fmt.Errorf("%s: argument %q contains %q, which would let two panes derive one session key", command, "paneId", separator)
+		return "", i18n.Errorf("terminal.session.separatorInHalf", map[string]string{"command": command, "name": "paneId", "separator": separator})
 	}
 	return windowLabel + separator + paneID, nil
 }
@@ -64,7 +66,7 @@ func paneKey(command, windowLabel, paneID string) (string, error) {
 // legal in one spawn and refused in the next.
 func windowHalf(command, windowLabel string) error {
 	if strings.Contains(windowLabel, separator) {
-		return fmt.Errorf("%s: argument %q contains %q, which would let two panes derive one session key", command, "windowLabel", separator)
+		return i18n.Errorf("terminal.session.separatorInHalf", map[string]string{"command": command, "name": "windowLabel", "separator": separator})
 	}
 	return nil
 }

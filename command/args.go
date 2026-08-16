@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/soksak/soksak-core/core/control"
+	"github.com/soksak/soksak-core/core/i18n"
 )
 
 // Argument decoding for the terminal commands.
@@ -28,14 +29,14 @@ import (
 func size(command string, args control.Args, name string) (uint16, error) {
 	raw, present := args[name]
 	if !present {
-		return 0, fmt.Errorf("%s: missing argument %q — the caller supplies the pane's screen size", command, name)
+		return 0, i18n.Errorf("terminal.args.missingSize", map[string]string{"command": command, "name": name})
 	}
 	var value uint16
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return 0, fmt.Errorf("%s: argument %q is not a screen dimension: %w", command, name, err)
 	}
 	if value == 0 {
-		return 0, fmt.Errorf("%s: argument %q must not be zero — a zero winsize leaves a full-screen program nothing to draw into", command, name)
+		return 0, i18n.Errorf("terminal.args.zeroSize", map[string]string{"command": command, "name": name})
 	}
 	return value, nil
 }
@@ -61,13 +62,13 @@ func optionalText(command string, args control.Args, name string) (string, bool,
 func requiredText(command string, args control.Args, name string) (string, error) {
 	raw, present := args[name]
 	if !present {
-		return "", fmt.Errorf("%s: missing argument %q", command, name)
+		return "", i18n.Errorf("terminal.args.missing", map[string]string{"command": command, "name": name})
 	}
 	// json.Unmarshal leaves a string untouched on null, so null would arrive
 	// here indistinguishable from "" — the one collapse this helper exists to
 	// prevent. It is checked before decoding rather than after.
 	if string(raw) == "null" {
-		return "", fmt.Errorf("%s: argument %q is null — send the text, or nothing at all", command, name)
+		return "", i18n.Errorf("terminal.args.nullText", map[string]string{"command": command, "name": name})
 	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
@@ -87,7 +88,7 @@ func paneArgument(command string, args control.Args) (string, error) {
 		return "", err
 	}
 	if paneID == "" {
-		return "", fmt.Errorf("%s: argument %q is empty — no pane is named by it", command, "paneId")
+		return "", i18n.Errorf("terminal.args.emptyPane", map[string]string{"command": command, "name": "paneId"})
 	}
 	return paneID, nil
 }
@@ -98,14 +99,14 @@ func paneArgument(command string, args control.Args) (string, error) {
 func sessionID(command string, args control.Args) (uint32, error) {
 	raw, present := args["id"]
 	if !present {
-		return 0, fmt.Errorf("%s: missing argument %q", command, "id")
+		return 0, i18n.Errorf("terminal.args.missing", map[string]string{"command": command, "name": "id"})
 	}
 	var value uint32
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return 0, fmt.Errorf("%s: argument %q is not a session id: %w", command, "id", err)
 	}
 	if value == 0 {
-		return 0, fmt.Errorf("%s: argument %q must not be zero — session ids are minted from 1", command, "id")
+		return 0, i18n.Errorf("terminal.args.zeroSessionID", map[string]string{"command": command, "name": "id"})
 	}
 	return value, nil
 }
@@ -116,14 +117,14 @@ func sessionID(command string, args control.Args) (uint32, error) {
 func byteCount(command string, args control.Args, name string) (uint64, error) {
 	raw, present := args[name]
 	if !present {
-		return 0, fmt.Errorf("%s: missing argument %q", command, name)
+		return 0, i18n.Errorf("terminal.args.missing", map[string]string{"command": command, "name": name})
 	}
 	var signed int64
 	if err := json.Unmarshal(raw, &signed); err != nil {
 		return 0, fmt.Errorf("%s: argument %q is not a byte count: %w", command, name, err)
 	}
 	if signed < 0 {
-		return 0, fmt.Errorf("%s: argument %q must not be negative", command, name)
+		return 0, i18n.Errorf("terminal.args.negativeCount", map[string]string{"command": command, "name": name})
 	}
 	return uint64(signed), nil
 }
@@ -148,7 +149,8 @@ func replaySpawns(command string, args control.Args) error {
 		if mode == "none" {
 			return nil
 		}
-		return fmt.Errorf("%s: argument %q is %q, and this build replays nothing — the consumer owns its screen (send \"none\" or nothing)", command, "replay", mode)
+		return i18n.Errorf("terminal.args.replayMode", map[string]string{
+			"command": command, "name": "replay", "mode": mode})
 	}
-	return fmt.Errorf("%s: argument %q asks for a replay this build cannot perform — there is no output ring to resume from, so the tail would come back empty", command, "replay")
+	return i18n.Errorf("terminal.args.replayRange", map[string]string{"command": command, "name": "replay"})
 }
