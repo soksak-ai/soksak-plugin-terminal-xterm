@@ -149,8 +149,17 @@ export function activate(ctx: ActivateContext): void {
       showCwd(key);
     },
     unmount(container) {
+      // Only when this is still the container the key names.
+      //
+      // A remount hands over a new element under the same view id, and the old element's unmount
+      // arrives after the new one's mount. Stopping by key alone disposes the screen that just
+      // opened: the shell keeps running with nothing drawing it, so the pane is blank and a read
+      // answers empty lines. Measured 2026-08-16 — four views mounted, three shells alive, every
+      // screen empty.
       const key = container.dataset.terminalView ?? "";
-      screens.get(key)?.screen.stop();
+      const found = screens.get(key);
+      if (!found || found.container !== container) return;
+      found.screen.stop();
       screens.delete(key);
     },
   });

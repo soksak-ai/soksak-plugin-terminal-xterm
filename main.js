@@ -7091,7 +7091,9 @@ function activate(ctx) {
     },
     unmount(container) {
       const key = container.dataset.terminalView ?? "";
-      screens.get(key)?.screen.stop();
+      const found = screens.get(key);
+      if (!found || found.container !== container) return;
+      found.screen.stop();
       screens.delete(key);
     }
   });
