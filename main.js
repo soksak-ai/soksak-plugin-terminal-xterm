@@ -6824,7 +6824,7 @@ function mountTerminal(host, id, binding) {
       resize();
     });
   });
-  return () => {
+  const stop = () => {
     if (disposed) return;
     disposed = true;
     observer.disconnect();
@@ -6837,6 +6837,13 @@ function mountTerminal(host, id, binding) {
     if (handle) void binding.close(handle);
     terminal.dispose();
     delete host.dataset.terminalIme;
+  };
+  return {
+    stop,
+    read: (lines) => readScreen(terminal, lines),
+    send: (data) => {
+      void write(data);
+    }
   };
 }
 function readScreen(terminal, lines) {
@@ -6854,35 +6861,112 @@ function readScreen(terminal, lines) {
 var plugin_default = {
   spec: "soksak-spec-plugin@0.0.1",
   id: "soksak-plugin-terminal-xterm",
-  name: { en: "Terminal", ko: "\uD130\uBBF8\uB110" },
+  name: {
+    en: "Terminal",
+    ko: "\uD130\uBBF8\uB110"
+  },
   version: "0.0.1",
   description: {
     en: "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
     ko: "\uC2E4\uC81C \uB85C\uADF8\uC778 \uC178\uC5D0 \uBD99\uB294 \uD130\uBBF8\uB110 \uBDF0. \uB80C\uB354\uB9C1\uC740 xterm.js, \uC178\uC740 \uD638\uC2A4\uD2B8\uC758 PTY \uBA85\uB839."
   },
   entry: "main.js",
-  permissions: ["ui", "commands", "programs", "pty", "terminal"],
-  implements: [{ id: "soksak-spec-plugin-terminal", version: "0.0.1" }],
-  consumes: [{ id: "soksak-spec-plugin-sidebar-file-tree", range: "^0.0.1" }],
+  permissions: [
+    "ui",
+    "ui:statusbar",
+    "commands",
+    "programs",
+    "pty",
+    "terminal"
+  ],
+  implements: [
+    {
+      id: "soksak-spec-plugin-terminal",
+      version: "0.0.1"
+    }
+  ],
+  consumes: [
+    {
+      id: "soksak-spec-plugin-sidebar-file-tree",
+      range: "^0.0.1"
+    }
+  ],
   contributes: {
     commands: [
-      { name: "clear", title: { en: "Clear terminal", ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30" } },
-      { name: "send", title: { en: "Send input", ko: "\uC785\uB825 \uBCF4\uB0B4\uAE30" }, danger: "inject" }
+      {
+        name: "clear",
+        title: {
+          en: "Clear terminal",
+          ko: "\uD130\uBBF8\uB110 \uC9C0\uC6B0\uAE30"
+        }
+      },
+      {
+        name: "send",
+        title: {
+          en: "Send input",
+          ko: "\uC785\uB825 \uBCF4\uB0B4\uAE30"
+        },
+        danger: "inject"
+      },
+      {
+        name: "read",
+        title: {
+          en: "Read the screen",
+          ko: "\uD654\uBA74 \uC77D\uAE30"
+        }
+      },
+      {
+        name: "exec",
+        title: {
+          en: "Run a command",
+          ko: "\uBA85\uB839 \uC2E4\uD589"
+        },
+        danger: "inject"
+      },
+      {
+        name: "cwd",
+        title: {
+          en: "Working directory",
+          ko: "\uC791\uC5C5 \uB514\uB809\uD130\uB9AC"
+        }
+      }
     ],
     nodes: [
-      { id: "screen", description: { en: "The terminal screen", ko: "\uD130\uBBF8\uB110 \uD654\uBA74" } }
+      {
+        id: "screen",
+        description: {
+          en: "The terminal screen",
+          ko: "\uD130\uBBF8\uB110 \uD654\uBA74"
+        }
+      }
     ],
     programs: [
-      { id: "terminal-xterm", title: { en: "Terminal", ko: "\uD130\uBBF8\uB110" }, kind: "view", view: "content" }
+      {
+        id: "terminal-xterm",
+        title: {
+          en: "Terminal",
+          ko: "\uD130\uBBF8\uB110"
+        },
+        kind: "view",
+        view: "content"
+      }
     ],
     views: [
       {
         id: "content",
-        title: { en: "Terminal", ko: "\uD130\uBBF8\uB110" },
+        title: {
+          en: "Terminal",
+          ko: "\uD130\uBBF8\uB110"
+        },
         icon: ">_",
-        placements: ["content"],
+        placements: [
+          "content"
+        ],
         defaultPlacement: "content",
-        status: ["connecting", "error"],
+        status: [
+          "connecting",
+          "error"
+        ],
         sidebar: {
           left: [
             {
@@ -6914,6 +6998,50 @@ var MESSAGES = {
   "terminal.noSession": {
     en: "This pane holds no terminal session yet",
     ko: "\uC774 \uD310\uC5D0\uB294 \uC544\uC9C1 \uD130\uBBF8\uB110 \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.clear.description": {
+    en: "Clear this terminal's screen. The shell keeps running.",
+    ko: "\uC774 \uD130\uBBF8\uB110 \uD654\uBA74\uC744 \uC9C0\uC6C1\uB2C8\uB2E4. \uC178\uC740 \uACC4\uC18D \uC2E4\uD589\uB429\uB2C8\uB2E4."
+  },
+  "terminal.send.description": {
+    en: "Write text to this terminal as if it had been typed.",
+    ko: "\uC9C1\uC811 \uC785\uB825\uD55C \uAC83\uCC98\uB7FC \uC774 \uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC501\uB2C8\uB2E4."
+  },
+  "terminal.label": {
+    en: "Terminal",
+    ko: "\uD130\uBBF8\uB110"
+  },
+  "terminal.noSuchView": {
+    en: "No terminal screen is open under that view id",
+    ko: "\uADF8 \uBDF0 id \uB85C \uC5F4\uB9B0 \uD130\uBBF8\uB110 \uD654\uBA74\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.ambiguous": {
+    en: "Several terminal screens are open \u2014 name one with view",
+    ko: "\uD130\uBBF8\uB110 \uD654\uBA74\uC774 \uC5EC\uB7EC \uAC1C \uC5F4\uB824 \uC788\uC2B5\uB2C8\uB2E4 \u2014 view \uB85C \uD558\uB098\uB97C \uC9C0\uC815\uD558\uC138\uC694"
+  },
+  "terminal.read.description": {
+    en: "Read this terminal's screen and scrollback as text.",
+    ko: "\uC774 \uD130\uBBF8\uB110\uC758 \uD654\uBA74\uACFC \uC2A4\uD06C\uB864\uBC31\uC744 \uD14D\uC2A4\uD2B8\uB85C \uC77D\uC2B5\uB2C8\uB2E4."
+  },
+  "terminal.read.answer": {
+    en: "Read {n} characters",
+    ko: "{n}\uC790\uB97C \uC77D\uC5C8\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.exec.description": {
+    en: "Run a command line in this terminal. Returns as soon as it is sent \u2014 read the output a moment later.",
+    ko: "\uC774 \uD130\uBBF8\uB110\uC5D0\uC11C \uBA85\uB839\uC744 \uC2E4\uD589\uD569\uB2C8\uB2E4. \uBCF4\uB0B8 \uC9C1\uD6C4 \uBC18\uD658\uD558\uBBC0\uB85C \uC7A0\uC2DC \uB4A4 \uCD9C\uB825\uC744 \uC77D\uC73C\uC138\uC694."
+  },
+  "terminal.exec.answer": {
+    en: "Sent the command",
+    ko: "\uBA85\uB839\uC744 \uBCF4\uB0C8\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.cwd.description": {
+    en: "The working directory this terminal's shell last reported.",
+    ko: "\uC774 \uD130\uBBF8\uB110\uC758 \uC178\uC774 \uB9C8\uC9C0\uB9C9\uC73C\uB85C \uBCF4\uACE0\uD55C \uC791\uC5C5 \uB514\uB809\uD130\uB9AC\uC785\uB2C8\uB2E4."
+  },
+  "terminal.cwd.answer": {
+    en: "Working directory {cwd}",
+    ko: "\uC791\uC5C5 \uB514\uB809\uD130\uB9AC {cwd}"
   }
 };
 function t(key, locale) {
@@ -6926,20 +7054,50 @@ function activate(ctx) {
   const app = ctx.app;
   const screens = /* @__PURE__ */ new Map();
   const binding = ptyBinding(app);
+  const showCwd = (key) => {
+    const place = (cwd) => {
+      const item = app.ui.statusBarItem?.({
+        id: `cwd:${key}`,
+        paneId: key,
+        label: cwd ?? "~",
+        title: cwd,
+        side: "left"
+      });
+      if (item) ctx.subscriptions.push(item);
+    };
+    place(app.terminal?.getCwd?.(key));
+    const following = app.terminal?.onCwd?.(key, (cwd) => place(cwd));
+    if (following) ctx.subscriptions.push(following);
+    const label = app.ui.statusBarItem?.({
+      id: `kind:${key}`,
+      paneId: key,
+      label: t("terminal.label", app.locale())
+    });
+    if (label) ctx.subscriptions.push(label);
+  };
   const view = app.ui.registerView("content", {
     mount(container, viewContext) {
       container.dataset.node = "screen";
-      const stop = mountTerminal(container, sessionKeyOf(viewContext), binding);
-      screens.set(container, { stop, container });
+      const key = sessionKeyOf(viewContext);
+      container.dataset.terminalView = key;
+      const status = viewContext?.setStatus;
+      screens.set(key, {
+        screen: mountTerminal(container, key, binding),
+        container,
+        setStatus: typeof status === "function" ? status : () => {
+        }
+      });
+      showCwd(key);
     },
     unmount(container) {
-      screens.get(container)?.stop();
-      screens.delete(container);
+      const key = container.dataset.terminalView ?? "";
+      screens.get(key)?.screen.stop();
+      screens.delete(key);
     }
   });
   ctx.subscriptions.push(view);
   register(app, ctx, "clear", {
-    description: "Clear this terminal's screen. The shell keeps running.",
+    description: t("terminal.clear.description", app.locale()),
     params: {},
     returns: "{ cleared }",
     message: () => t("terminal.cleared", app.locale()),
@@ -6950,19 +7108,98 @@ function activate(ctx) {
       return { cleared: screens.size };
     }
   });
+  const isRefusal = (v) => !!v && typeof v === "object" && v.ok === false;
+  const target = (params, context) => {
+    const open = [...screens.keys()];
+    const named = typeof params.view === "string" ? params.view : "";
+    if (named) {
+      const found = screens.get(named);
+      if (!found) {
+        return {
+          ok: false,
+          code: "TARGET_NOT_FOUND",
+          message: t("terminal.noSuchView", app.locale()),
+          data: { view: named, open }
+        };
+      }
+      return { screen: found.screen, key: named };
+    }
+    const pane = context?.pane ?? "";
+    const here = pane ? screens.get(pane) : void 0;
+    if (here) return { screen: here.screen, key: pane };
+    if (screens.size === 1) {
+      const [key, only] = [...screens.entries()][0];
+      return { screen: only.screen, key };
+    }
+    return screens.size === 0 ? { ok: false, code: "TARGET_NOT_FOUND", message: t("terminal.noSession", app.locale()) } : {
+      ok: false,
+      code: "AMBIGUOUS",
+      message: t("terminal.ambiguous", app.locale()),
+      data: { open }
+    };
+  };
+  const viewParam = {
+    type: "string",
+    description: "Target view id (omit = the caller's pane, or the only screen open)"
+  };
   register(app, ctx, "send", {
-    description: "Write text to this terminal as if it had been typed.",
-    params: { data: { type: "string", description: "Text to write", required: true } },
-    returns: "{ sent }",
+    description: t("terminal.send.description", app.locale()),
+    params: { data: { type: "string", description: "Text to write", required: true }, view: viewParam },
+    returns: "{ sent, view }",
     danger: "inject",
     message: () => t("terminal.sent", app.locale()),
-    handler: async (params) => {
+    handler: (params, context) => {
       const data = typeof params.data === "string" ? params.data : "";
-      if (currentSessionId === null) {
-        throw new Error(t("terminal.noSession", app.locale()));
-      }
-      await app.pty.write(currentSessionId, data);
-      return { sent: data.length };
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      found.screen.send(data);
+      return { sent: data.length, view: found.key };
+    }
+  });
+  register(app, ctx, "read", {
+    description: t("terminal.read.description", app.locale()),
+    params: {
+      lines: { type: "number", description: "Last N lines only (omit = the whole buffer)" },
+      view: viewParam
+    },
+    returns: "{ view, text }",
+    message: (d) => t("terminal.read.answer", app.locale()).replace(
+      "{n}",
+      String(String(d.text ?? "").length)
+    ),
+    handler: (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const lines = typeof params.lines === "number" ? params.lines : void 0;
+      return { view: found.key, text: found.screen.read(lines) };
+    }
+  });
+  register(app, ctx, "exec", {
+    description: t("terminal.exec.description", app.locale()),
+    params: {
+      cmd: { type: "string", description: "Command line to run", required: true },
+      view: viewParam
+    },
+    returns: "{ view, sent }",
+    danger: "inject",
+    message: () => t("terminal.exec.answer", app.locale()),
+    handler: (params, context) => {
+      const cmd = typeof params.cmd === "string" ? params.cmd : "";
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      found.screen.send(`${cmd}\r`);
+      return { view: found.key, sent: cmd.length + 1 };
+    }
+  });
+  register(app, ctx, "cwd", {
+    description: t("terminal.cwd.description", app.locale()),
+    params: { view: viewParam },
+    returns: "{ view, cwd }",
+    message: (d) => t("terminal.cwd.answer", app.locale()).replace("{cwd}", String(d.cwd ?? "\u2014")),
+    handler: (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      return { view: found.key, cwd: app.terminal?.getCwd?.(found.key) ?? null };
     }
   });
 }

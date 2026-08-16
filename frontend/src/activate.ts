@@ -1,5 +1,5 @@
 import { t } from "./i18n";
-import { mountTerminal, type TerminalBinding } from "./terminal";
+import { mountTerminal, type TerminalBinding, type TerminalScreen } from "./terminal";
 
 // The plugin's entry. The host calls activate(ctx); this registers the view and
 // the commands the manifest declares. The host registers nothing on the
@@ -16,6 +16,16 @@ export interface TerminalHost {
       mount(container: HTMLElement, ctx: unknown): void;
       unmount?(container: HTMLElement): void;
     }): { dispose(): void };
+    /** One reading or control in the status bar of the group showing a view. The
+     *  host places it and reads nothing into it. */
+    statusBarItem?(item: {
+      id: string;
+      paneId: string;
+      label: string;
+      title?: string;
+      side?: "left" | "right";
+      onClick?: () => void;
+    }): { dispose(): void };
   };
   commands: {
     register(name: string, spec: Record<string, unknown>): { dispose(): void } | void;
@@ -23,6 +33,27 @@ export interface TerminalHost {
   };
   /** The host's display language. This plugin translates its own strings. */
   locale(): string;
+  /** Observation of a pane's shell, granted by the "terminal" permission. The
+   *  host parses OSC 7/133/633 out of the byte stream — a protocol decoder every
+   *  plugin reading a PTY would otherwise write again — and this reads the
+   *  answer. What the answer *means* is decided here. */
+  terminal?: {
+    getCwd?(paneId: string): string | undefined;
+    onCwd?(paneId: string, listener: (cwd: string) => void): { dispose(): void };
+  };
+  /** The host's event bus. `command.started` and `command.finished` are what the
+   *  OSC 133/633 decoder publishes; what they should look like on screen is
+   *  decided here. */
+  events?: {
+    on?(
+      event: string,
+      listener: (payload: {
+        paneId?: string;
+        commandLine?: string;
+        paths?: string[];
+      }) => void,
+    ): { dispose(): void };
+  };
   /** The PTY capability, granted by the "pty" permission the manifest declares.
    *
    *  This is the only route from this plugin to a shell. Calling the backend's
@@ -48,22 +79,79 @@ export interface ActivateContext {
   subscriptions: { dispose(): void }[];
 }
 
+/** A path as one shell word.
+ *
+ *  Everything outside the unreserved set is escaped rather than quoted: a
+ *  filename holding a quote breaks out of quoting, and a space or a `$` in a
+ *  bare path becomes two words or an expansion. */
+function quoteForShell(path: string): string {
+  return path.replace(/[^A-Za-z0-9_./@%+:,=-]/g, "\\$&");
+}
+
 /** One terminal per mounted container. */
 export function activate(ctx: ActivateContext): void {
   const app = ctx.app;
-  const screens = new Map<HTMLElement, TerminalScreen>();
+  // Keyed by view id — the stable identity of this view instance, and what an
+  // outside caller names. Keyed by container, a command could reach a screen
+  // only by already holding its element.
+  const screens = new Map<
+    string,
+    {
+      screen: TerminalScreen;
+      container: HTMLElement;
+      setStatus: (status: { code: string; message?: string } | null) => void;
+    }
+  >();
   const binding = ptyBinding(app);
+
+  /** This screen's working directory, and what kind of screen it is, in the status bar.
+   *
+   *  The host decodes OSC 7 and answers where the shell says it is. That a person wants to see it,
+   *  on the left, and that "~" stands in before the shell has said anything, are decisions — and
+   *  they are this plugin's. A host that made them would be drawing one kind of content's status
+   *  line on its behalf, which is what it did until 2026-08-16. */
+  const showCwd = (key: string): void => {
+    const place = (cwd: string | undefined) => {
+      const item = app.ui.statusBarItem?.({
+        id: `cwd:${key}`,
+        paneId: key,
+        label: cwd ?? "~",
+        title: cwd,
+        side: "left",
+      });
+      if (item) ctx.subscriptions.push(item);
+    };
+    place(app.terminal?.getCwd?.(key));
+    const following = app.terminal?.onCwd?.(key, (cwd) => place(cwd));
+    if (following) ctx.subscriptions.push(following);
+    const label = app.ui.statusBarItem?.({
+      id: `kind:${key}`,
+      paneId: key,
+      label: t("terminal.label", app.locale()),
+    });
+    if (label) ctx.subscriptions.push(label);
+  };
 
   const view = app.ui.registerView("content", {
     mount(container, viewContext) {
       // The address every outside caller uses to reach this screen.
       container.dataset.node = "screen";
-      const stop = mountTerminal(container, sessionKeyOf(viewContext), binding);
-      screens.set(container, { stop, container });
+      const key = sessionKeyOf(viewContext);
+      container.dataset.terminalView = key;
+      const status = (viewContext as { setStatus?: unknown } | null)?.setStatus;
+      screens.set(key, {
+        screen: mountTerminal(container, key, binding),
+        container,
+        setStatus: typeof status === "function"
+          ? (status as (s: { code: string; message?: string } | null) => void)
+          : () => {},
+      });
+      showCwd(key);
     },
     unmount(container) {
-      screens.get(container)?.stop();
-      screens.delete(container);
+      const key = container.dataset.terminalView ?? "";
+      screens.get(key)?.screen.stop();
+      screens.delete(key);
     },
   });
   ctx.subscriptions.push(view);
@@ -81,30 +169,132 @@ export function activate(ctx: ActivateContext): void {
     },
   });
 
+  /** The screen a call is about, or the refusal that names why there is none.
+   *
+   *  Named view first, then the pane the call came from, then the only one
+   *  mounted. Never a guess between two: a caller that reaches the wrong shell
+   *  finds out from what the shell did.
+   *
+   *  Returned rather than thrown. A thrown error reaches the caller as INTERNAL
+   *  with the sentence replaced — "this failed unexpectedly" — and a refusal
+   *  that states which screens exist is exactly what the caller needs. */
+  type Refusal = { ok: false; code: string; message: string; data?: Record<string, unknown> };
+  const isRefusal = (v: unknown): v is Refusal =>
+    !!v && typeof v === "object" && (v as { ok?: unknown }).ok === false;
+
+  const target = (
+    params: Record<string, unknown>,
+    context?: { pane?: string },
+  ): { screen: TerminalScreen; key: string } | Refusal => {
+    const open = [...screens.keys()];
+    const named = typeof params.view === "string" ? params.view : "";
+    if (named) {
+      const found = screens.get(named);
+      if (!found) {
+        return {
+          ok: false,
+          code: "TARGET_NOT_FOUND",
+          message: t("terminal.noSuchView", app.locale()),
+          data: { view: named, open },
+        };
+      }
+      return { screen: found.screen, key: named };
+    }
+    const pane = context?.pane ?? "";
+    const here = pane ? screens.get(pane) : undefined;
+    if (here) return { screen: here.screen, key: pane };
+    if (screens.size === 1) {
+      const [key, only] = [...screens.entries()][0];
+      return { screen: only.screen, key };
+    }
+    return screens.size === 0
+      ? { ok: false, code: "TARGET_NOT_FOUND", message: t("terminal.noSession", app.locale()) }
+      : {
+          ok: false,
+          code: "AMBIGUOUS",
+          message: t("terminal.ambiguous", app.locale()),
+          data: { open },
+        };
+  };
+
+  const viewParam = {
+    type: "string",
+    description: "Target view id (omit = the caller's pane, or the only screen open)",
+  };
+
   register(app, ctx, "send", {
     description: t("terminal.send.description", app.locale()),
-    params: { data: { type: "string", description: "Text to write", required: true } },
-    returns: "{ sent }",
+    params: { data: { type: "string", description: "Text to write", required: true }, view: viewParam },
+    returns: "{ sent, view }",
     danger: "inject",
     message: () => t("terminal.sent", app.locale()),
-    handler: async (params: Record<string, unknown>) => {
+    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
       const data = typeof params.data === "string" ? params.data : "";
-      if (currentSessionId === null) {
-        throw new Error(t("terminal.noSession", app.locale()));
-      }
-      await app.pty.write(currentSessionId, data);
-      return { sent: data.length };
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      found.screen.send(data);
+      return { sent: data.length, view: found.key };
+    },
+  });
+
+  register(app, ctx, "read", {
+    description: t("terminal.read.description", app.locale()),
+    params: {
+      lines: { type: "number", description: "Last N lines only (omit = the whole buffer)" },
+      view: viewParam,
+    },
+    returns: "{ view, text }",
+    message: (d: Record<string, unknown>) =>
+      t("terminal.read.answer", app.locale()).replace(
+        "{n}",
+        String(String(d.text ?? "").length),
+      ),
+    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const lines = typeof params.lines === "number" ? params.lines : undefined;
+      return { view: found.key, text: found.screen.read(lines) };
+    },
+  });
+
+  register(app, ctx, "exec", {
+    description: t("terminal.exec.description", app.locale()),
+    params: {
+      cmd: { type: "string", description: "Command line to run", required: true },
+      view: viewParam,
+    },
+    returns: "{ view, sent }",
+    danger: "inject",
+    message: () => t("terminal.exec.answer", app.locale()),
+    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const cmd = typeof params.cmd === "string" ? params.cmd : "";
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      // The Enter is what runs it. Sending the line alone leaves it typed and
+      // unrun, and the caller reads a prompt that looks like a finished command.
+      found.screen.send(`${cmd}\r`);
+      return { view: found.key, sent: cmd.length + 1 };
+    },
+  });
+
+  register(app, ctx, "cwd", {
+    description: t("terminal.cwd.description", app.locale()),
+    params: { view: viewParam },
+    returns: "{ view, cwd }",
+    message: (d: Record<string, unknown>) =>
+      t("terminal.cwd.answer", app.locale()).replace("{cwd}", String(d.cwd ?? "—")),
+    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      // Absent means the shell has not reported one — no integration, or not yet.
+      // Answering a guess here would be answering the wrong directory.
+      return { view: found.key, cwd: app.terminal?.getCwd?.(found.key) ?? null };
     },
   });
 }
 
-interface TerminalScreen {
-  stop: () => void;
-  container: HTMLElement;
-}
-
-// The session the last mount opened. One screen per pane; a command with no
-// session refuses rather than writing into another pane's shell.
+// The session the last mount opened, for the paths that address the shell
+// directly rather than the screen in front of it.
 let currentSessionId: number | null = null;
 
 function register(

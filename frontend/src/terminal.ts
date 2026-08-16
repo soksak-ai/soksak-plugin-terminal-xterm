@@ -36,7 +36,19 @@ export type TerminalBinding = {
   traceInput(handle: TerminalHandle, event: TerminalInputTrace): Promise<void>;
 };
 
-export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBinding): () => void {
+/** One mounted screen, and what an outside caller can do to it.
+ *
+ *  read and send are here rather than in the host: the host owns the PTY, this
+ *  plugin owns the screen, and reading a screen is a question about glyphs on
+ *  it. A host command that answered it would need this plugin's buffer, which
+ *  is how `term.read` came to sit in the core (CORE-CENSUS 3). */
+export interface TerminalScreen {
+  stop: () => void;
+  read: (lines?: number) => string;
+  send: (data: string) => void;
+}
+
+export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBinding): TerminalScreen {
   // Once per document, before xterm builds its DOM. Without these rules the
   // screen renders as unstyled spans.
   injectStyles();
@@ -126,7 +138,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     });
   });
 
-  return () => {
+  const stop = (): void => {
     if (disposed) return;
     disposed = true;
     observer.disconnect();
@@ -139,6 +151,12 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     if (handle) void binding.close(handle);
     terminal.dispose();
     delete host.dataset.terminalIme;
+  };
+
+  return {
+    stop,
+    read: (lines) => readScreen(terminal, lines),
+    send: (data) => { void write(data); },
   };
 }
 

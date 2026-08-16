@@ -67,7 +67,7 @@ async function nextFrame(): Promise<void> {
 describe("a mounted terminal", () => {
   it("opens a session for the pane it was mounted for", async () => {
     const open = vi.fn(async () => SESSION);
-    const stop = mountTerminal(mountedHost(), "pan-aaaaaa", binding({ open }));
+    const screen = mountTerminal(mountedHost(), "pan-aaaaaa", binding({ open }));
 
     await nextFrame();
 
@@ -77,15 +77,15 @@ describe("a mounted terminal", () => {
     expect(cols).toBeGreaterThan(0);
     expect(rows).toBeGreaterThan(0);
 
-    stop();
+    screen.stop();
   });
 
   it("closes the session it opened when the view goes away", async () => {
     const close = vi.fn(async () => {});
-    const stop = mountTerminal(mountedHost(), "pan-bbbbbb", binding({ close }));
+    const screen = mountTerminal(mountedHost(), "pan-bbbbbb", binding({ close }));
 
     await nextFrame();
-    stop();
+    screen.stop();
     await Promise.resolve();
 
     expect(close).toHaveBeenCalledWith(SESSION);
@@ -96,7 +96,7 @@ describe("a mounted terminal", () => {
     // exists would name nothing, and the first output would be lost with
     // nothing reporting it.
     const onData = vi.fn(() => ({ dispose: () => undefined }));
-    const stop = mountTerminal(mountedHost(), "pan-cccccc", binding({ onData }));
+    const screen = mountTerminal(mountedHost(), "pan-cccccc", binding({ onData }));
 
     expect(onData).not.toHaveBeenCalled();
     await nextFrame();
@@ -105,17 +105,17 @@ describe("a mounted terminal", () => {
     const [session] = onData.mock.calls[0] as unknown as [number];
     expect(session).toBe(SESSION);
 
-    stop();
+    screen.stop();
   });
 
   it("stops receiving bytes when the view goes away", async () => {
     const dispose = vi.fn();
-    const stop = mountTerminal(mountedHost(), "pan-dddddd", binding({
+    const screen = mountTerminal(mountedHost(), "pan-dddddd", binding({
       onData: vi.fn(() => ({ dispose })),
     }));
 
     await nextFrame();
-    stop();
+    screen.stop();
 
     expect(dispose).toHaveBeenCalled();
   });
@@ -128,7 +128,7 @@ describe("the host's view of a mounted terminal", () => {
     // the host has no other way in (measured 2026-08-15).
     const registerIo = vi.fn(() => ({ dispose: () => undefined }));
     const write = vi.fn(async () => {});
-    const stop = mountTerminal(mountedHost(), "tab-eeeeee", binding({ registerIo, write }));
+    const screen = mountTerminal(mountedHost(), "tab-eeeeee", binding({ registerIo, write }));
 
     await nextFrame();
 
@@ -144,6 +144,6 @@ describe("the host's view of a mounted terminal", () => {
     await Promise.resolve();
     expect(write).toHaveBeenCalledWith(SESSION, "ls\r");
 
-    stop();
+    screen.stop();
   });
 });
