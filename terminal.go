@@ -260,10 +260,26 @@ func (service *Service) Status() []Status {
 }
 
 func (service *Service) ServiceShutdown() error {
+	service.Reap()
+	return nil
+}
+
+// Reap closes every session this service holds and answers how many it closed.
+//
+// The count is this service's own — nothing else knows how many sessions it
+// held — and it is what `app_shutdown_prepare` puts in the receipt a caller
+// checks before the process goes away. A shutdown that reaped correctly and
+// reported nothing could not be part of that receipt, so the one command that
+// quits the application was declared unserved (measured 2026-08-16: `sok
+// app.shutdown.commit` answered INTERNAL).
+//
+// Idempotent, and a second call answers zero rather than the first count: a
+// number that repeated itself would report work that did not happen.
+func (service *Service) Reap() int {
 	service.mu.Lock()
 	if service.stopped {
 		service.mu.Unlock()
-		return nil
+		return 0
 	}
 	service.stopped = true
 	sessions := service.sessions
@@ -274,9 +290,11 @@ func (service *Service) ServiceShutdown() error {
 	for id := range sessions {
 		ids = append(ids, id)
 	}
+	// Sorted, so two runs of one shutdown close in the same order and a failure
+	// names the same session twice rather than a different one each time.
 	sort.Strings(ids)
 	for _, id := range ids {
 		closeSession(sessions[id])
 	}
-	return nil
+	return len(ids)
 }
