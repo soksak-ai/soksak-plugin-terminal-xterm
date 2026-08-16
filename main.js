@@ -6859,7 +6859,7 @@ function readScreen(terminal, lines) {
 
 // ../plugin.json
 var plugin_default = {
-  spec: "soksak-spec-plugin@0.0.1",
+  spec: "0.0.1",
   id: "soksak-plugin-terminal-xterm",
   name: {
     en: "Terminal",
@@ -6878,18 +6878,6 @@ var plugin_default = {
     "programs",
     "pty",
     "terminal"
-  ],
-  implements: [
-    {
-      id: "soksak-spec-plugin-terminal",
-      version: "0.0.1"
-    }
-  ],
-  consumes: [
-    {
-      id: "soksak-spec-plugin-sidebar-file-tree",
-      range: "^0.0.1"
-    }
   ],
   contributes: {
     commands: [
@@ -6970,10 +6958,9 @@ var plugin_default = {
         sidebar: {
           left: [
             {
-              contract: "soksak-spec-plugin-sidebar-file-tree",
-              range: "^0.0.1",
               view: "tree",
-              instance: "shared"
+              instance: "shared",
+              plugin: "soksak-plugin-file-tree"
             }
           ]
         }
