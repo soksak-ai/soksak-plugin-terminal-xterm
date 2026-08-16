@@ -19,12 +19,6 @@
     "pty",
     "terminal"
   ],
-  "implements": [
-    {
-      "id": "soksak-spec-plugin-terminal",
-      "version": "0.0.1"
-    }
-  ],
   "consumes": [
     {
       "id": "soksak-spec-plugin-sidebar-file-tree",
