@@ -30,6 +30,22 @@ const MESSAGES = {
     en: "Write text to this terminal as if it had been typed.",
     ko: "직접 입력한 것처럼 이 터미널에 텍스트를 씁니다.",
   },
+  "terminal.param.view": {
+    en: "Target view id (omit = the caller's pane, or the only screen open)",
+    ko: "대상 뷰 id (생략 = 호출자의 판, 또는 열려 있는 유일한 화면)",
+  },
+  "terminal.param.data": {
+    en: "Text to write",
+    ko: "쓸 텍스트",
+  },
+  "terminal.param.lines": {
+    en: "Last N lines only (omit = the whole buffer)",
+    ko: "마지막 N 줄만 (생략 = 버퍼 전체)",
+  },
+  "terminal.param.cmd": {
+    en: "Command line to run",
+    ko: "실행할 명령 줄",
+  },
   "terminal.label": {
     en: "Terminal",
     ko: "터미널",
@@ -74,4 +90,17 @@ export type MessageKey = keyof typeof MESSAGES;
 export function t(key: MessageKey, locale: string): string {
   const entry = MESSAGES[key];
   return locale.startsWith("ko") ? entry.ko : entry.en;
+}
+
+/**
+ * The sentence itself, unresolved.
+ *
+ * A command's description and its answer are read by whoever called, and the host is the only one
+ * that knows who that is — a `sok` caller reading English through a Korean window is answered in
+ * English only if the host does the resolving. Handing over the resolved string instead freezes it
+ * to the language this ran in, which for a description is the language the plugin was registered
+ * in and never changes again.
+ */
+export function sentence(key: MessageKey): { en: string; ko: string } {
+  return MESSAGES[key];
 }

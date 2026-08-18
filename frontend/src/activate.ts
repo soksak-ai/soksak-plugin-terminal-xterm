@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+import { sentence, t } from "./i18n";
 import { mountTerminal, type TerminalBinding, type TerminalScreen } from "./terminal";
 
 // The plugin's entry. The host calls activate(ctx); this registers the view and
@@ -166,10 +166,10 @@ export function activate(ctx: ActivateContext): void {
   ctx.subscriptions.push(view);
 
   register(app, ctx, "clear", {
-    description: t("terminal.clear.description", app.locale()),
+    description: sentence("terminal.clear.description"),
     params: {},
     returns: "{ cleared }",
-    message: () => t("terminal.cleared", app.locale()),
+    message: () => sentence("terminal.cleared"),
     handler: () => {
       for (const screen of screens.values()) {
         screen.container.dispatchEvent(new CustomEvent("soksak:terminal-clear"));
@@ -228,15 +228,15 @@ export function activate(ctx: ActivateContext): void {
 
   const viewParam = {
     type: "string",
-    description: "Target view id (omit = the caller's pane, or the only screen open)",
+    description: sentence("terminal.param.view"),
   };
 
   register(app, ctx, "send", {
-    description: t("terminal.send.description", app.locale()),
-    params: { data: { type: "string", description: "Text to write", required: true }, view: viewParam },
+    description: sentence("terminal.send.description"),
+    params: { data: { type: "string", description: sentence("terminal.param.data"), required: true }, view: viewParam },
     returns: "{ sent, view }",
     danger: "inject",
-    message: () => t("terminal.sent", app.locale()),
+    message: () => sentence("terminal.sent"),
     handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
       const data = typeof params.data === "string" ? params.data : "";
       const found = target(params, context);
@@ -247,9 +247,9 @@ export function activate(ctx: ActivateContext): void {
   });
 
   register(app, ctx, "read", {
-    description: t("terminal.read.description", app.locale()),
+    description: sentence("terminal.read.description"),
     params: {
-      lines: { type: "number", description: "Last N lines only (omit = the whole buffer)" },
+      lines: { type: "number", description: sentence("terminal.param.lines") },
       view: viewParam,
     },
     returns: "{ view, text }",
@@ -267,14 +267,14 @@ export function activate(ctx: ActivateContext): void {
   });
 
   register(app, ctx, "exec", {
-    description: t("terminal.exec.description", app.locale()),
+    description: sentence("terminal.exec.description"),
     params: {
-      cmd: { type: "string", description: "Command line to run", required: true },
+      cmd: { type: "string", description: sentence("terminal.param.cmd"), required: true },
       view: viewParam,
     },
     returns: "{ view, sent }",
     danger: "inject",
-    message: () => t("terminal.exec.answer", app.locale()),
+    message: () => sentence("terminal.exec.answer"),
     handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
       const cmd = typeof params.cmd === "string" ? params.cmd : "";
       const found = target(params, context);
@@ -287,7 +287,7 @@ export function activate(ctx: ActivateContext): void {
   });
 
   register(app, ctx, "cwd", {
-    description: t("terminal.cwd.description", app.locale()),
+    description: sentence("terminal.cwd.description"),
     params: { view: viewParam },
     returns: "{ view, cwd }",
     message: (d: Record<string, unknown>) =>
