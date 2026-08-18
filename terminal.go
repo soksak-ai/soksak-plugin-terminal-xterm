@@ -53,8 +53,29 @@ type Status struct {
 type OutputSink interface {
 	EmitStream(stream string, frame any)
 }
+
+// InputTraceSink is where this package's keystroke records go. It is the core's
+// diagnostic contract (control.TraceSink), declared here by its name because a
+// consumer names the interface it needs — and taking the core's shape rather
+// than this package's is what lets a host implement it while knowing no plugin.
+//
+// It took Handle and InputTrace before, so the one host that implements it held
+// two of this package's types for a body that only marshals and logs them.
 type InputTraceSink interface {
-	EmitTerminalInputTrace(Handle, InputTrace)
+	Trace(kind string, record any)
+}
+
+// InputTraceKind is what this package's keystroke records are named. One
+// constant rather than a string at the call site: two spellings are two
+// channels nobody can read at once.
+const InputTraceKind = "terminal.input"
+
+// tracedInput is one keystroke record on the wire: which session, and what
+// arrived. Both were separate arguments and a reader had to be told how they
+// went together.
+type tracedInput struct {
+	Handle Handle     `json:"handle"`
+	Event  InputTrace `json:"event"`
 }
 
 type session struct {
@@ -236,7 +257,7 @@ func (service *Service) TraceInput(handle Handle, event InputTrace) error {
 	}
 	service.mu.Unlock()
 	if sink, ok := service.sink.(InputTraceSink); ok {
-		sink.EmitTerminalInputTrace(handle, event)
+		sink.Trace(InputTraceKind, tracedInput{Handle: handle, Event: event})
 	}
 	return nil
 }
