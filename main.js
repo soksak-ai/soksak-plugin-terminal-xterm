@@ -6859,7 +6859,7 @@ function readScreen(terminal, lines) {
 
 // ../plugin.json
 var plugin_default = {
-  spec: "0.0.1",
+  spec: "soksak-spec-plugin@0.0.1",
   id: "soksak-plugin-terminal-xterm",
   name: {
     en: "Terminal",
@@ -6985,6 +6985,22 @@ var MESSAGES = {
     en: "Write text to this terminal as if it had been typed.",
     ko: "\uC9C1\uC811 \uC785\uB825\uD55C \uAC83\uCC98\uB7FC \uC774 \uD130\uBBF8\uB110\uC5D0 \uD14D\uC2A4\uD2B8\uB97C \uC501\uB2C8\uB2E4."
   },
+  "terminal.param.view": {
+    en: "Target view id (omit = the caller's pane, or the only screen open)",
+    ko: "\uB300\uC0C1 \uBDF0 id (\uC0DD\uB7B5 = \uD638\uCD9C\uC790\uC758 \uD310, \uB610\uB294 \uC5F4\uB824 \uC788\uB294 \uC720\uC77C\uD55C \uD654\uBA74)"
+  },
+  "terminal.param.data": {
+    en: "Text to write",
+    ko: "\uC4F8 \uD14D\uC2A4\uD2B8"
+  },
+  "terminal.param.lines": {
+    en: "Last N lines only (omit = the whole buffer)",
+    ko: "\uB9C8\uC9C0\uB9C9 N \uC904\uB9CC (\uC0DD\uB7B5 = \uBC84\uD37C \uC804\uCCB4)"
+  },
+  "terminal.param.cmd": {
+    en: "Command line to run",
+    ko: "\uC2E4\uD589\uD560 \uBA85\uB839 \uC904"
+  },
   "terminal.label": {
     en: "Terminal",
     ko: "\uD130\uBBF8\uB110"
@@ -7025,6 +7041,9 @@ var MESSAGES = {
 function t(key, locale) {
   const entry = MESSAGES[key];
   return locale.startsWith("ko") ? entry.ko : entry.en;
+}
+function sentence(key) {
+  return MESSAGES[key];
 }
 
 // src/activate.ts
@@ -7077,10 +7096,10 @@ function activate(ctx) {
   });
   ctx.subscriptions.push(view);
   register(app, ctx, "clear", {
-    description: t("terminal.clear.description", app.locale()),
+    description: sentence("terminal.clear.description"),
     params: {},
     returns: "{ cleared }",
-    message: () => t("terminal.cleared", app.locale()),
+    message: () => sentence("terminal.cleared"),
     handler: () => {
       for (const screen of screens.values()) {
         screen.container.dispatchEvent(new CustomEvent("soksak:terminal-clear"));
@@ -7120,14 +7139,14 @@ function activate(ctx) {
   };
   const viewParam = {
     type: "string",
-    description: "Target view id (omit = the caller's pane, or the only screen open)"
+    description: sentence("terminal.param.view")
   };
   register(app, ctx, "send", {
-    description: t("terminal.send.description", app.locale()),
-    params: { data: { type: "string", description: "Text to write", required: true }, view: viewParam },
+    description: sentence("terminal.send.description"),
+    params: { data: { type: "string", description: sentence("terminal.param.data"), required: true }, view: viewParam },
     returns: "{ sent, view }",
     danger: "inject",
-    message: () => t("terminal.sent", app.locale()),
+    message: () => sentence("terminal.sent"),
     handler: (params, context) => {
       const data = typeof params.data === "string" ? params.data : "";
       const found = target(params, context);
@@ -7137,9 +7156,9 @@ function activate(ctx) {
     }
   });
   register(app, ctx, "read", {
-    description: t("terminal.read.description", app.locale()),
+    description: sentence("terminal.read.description"),
     params: {
-      lines: { type: "number", description: "Last N lines only (omit = the whole buffer)" },
+      lines: { type: "number", description: sentence("terminal.param.lines") },
       view: viewParam
     },
     returns: "{ view, text }",
@@ -7155,14 +7174,14 @@ function activate(ctx) {
     }
   });
   register(app, ctx, "exec", {
-    description: t("terminal.exec.description", app.locale()),
+    description: sentence("terminal.exec.description"),
     params: {
-      cmd: { type: "string", description: "Command line to run", required: true },
+      cmd: { type: "string", description: sentence("terminal.param.cmd"), required: true },
       view: viewParam
     },
     returns: "{ view, sent }",
     danger: "inject",
-    message: () => t("terminal.exec.answer", app.locale()),
+    message: () => sentence("terminal.exec.answer"),
     handler: (params, context) => {
       const cmd = typeof params.cmd === "string" ? params.cmd : "";
       const found = target(params, context);
@@ -7172,7 +7191,7 @@ function activate(ctx) {
     }
   });
   register(app, ctx, "cwd", {
-    description: t("terminal.cwd.description", app.locale()),
+    description: sentence("terminal.cwd.description"),
     params: { view: viewParam },
     returns: "{ view, cwd }",
     message: (d) => t("terminal.cwd.answer", app.locale()).replace("{cwd}", String(d.cwd ?? "\u2014")),
@@ -7215,6 +7234,7 @@ export {
   manifest,
   mountTerminal,
   routeXtermData,
+  sentence,
   t,
   terminalBytes
 };
