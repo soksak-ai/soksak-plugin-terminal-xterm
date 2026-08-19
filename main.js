@@ -6999,6 +6999,7 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
       ime.flushPending();
       terminal.textarea?.blur();
     },
+    refresh: () => terminal.refresh(0, Math.max(0, terminal.rows - 1)),
     benchmark: async (request) => {
       const payload = createRendererPayload(request.mode, request.bytes);
       const samplesMs = [];
@@ -7325,6 +7326,10 @@ function activate(ctx) {
     }
   });
   ctx.subscriptions.push(view);
+  const capturePrepare = app.events?.on?.("capture.prepare", () => {
+    for (const mounted of screens.values()) mounted.screen.refresh();
+  });
+  if (capturePrepare) ctx.subscriptions.push(capturePrepare);
   register(app, ctx, "clear", {
     description: sentence("terminal.clear.description"),
     params: {},

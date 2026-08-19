@@ -65,6 +65,8 @@ export interface TerminalScreen {
   focus: () => boolean;
   /** Commit transient IME state and release the source responder before another view focuses. */
   prepareFocusTransfer: () => void;
+  /** Redraw the retained screen for a focus-free background capture. */
+  refresh: () => void;
   benchmark: (request: RendererBenchmarkRequest) => Promise<RendererBenchmarkReport>;
 }
 
@@ -303,6 +305,7 @@ export function mountTerminal(
       ime.flushPending();
       terminal.textarea?.blur();
     },
+    refresh: () => terminal.refresh(0, Math.max(0, terminal.rows - 1)),
     benchmark: async (request) => {
       const payload = createRendererPayload(request.mode, request.bytes);
       const samplesMs: number[] = [];
