@@ -56,7 +56,7 @@ describe("renderer benchmark command", () => {
     provider!.mount(container, { viewId: "tab-benchmark", setStatus() {} });
     await new Promise((resolve) => requestAnimationFrame(resolve));
 
-    const command = commands.get("benchmark.render");
+    const command = commands.get("benchmark.parser");
     expect(command).toBeDefined();
     const result = await command!.handler({
       view: "tab-benchmark",
@@ -91,7 +91,7 @@ describe("renderer benchmark command", () => {
     } as unknown as TerminalHost;
     activate({ app: host, subscriptions: [] });
 
-    const result = await commands.get("benchmark.render")!.handler({
+    const result = await commands.get("benchmark.parser")!.handler({
       mode: "printable",
       bytes: 0,
       repetitions: 2,

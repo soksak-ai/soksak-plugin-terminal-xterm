@@ -177,6 +177,7 @@ describe("a mounted terminal", () => {
     const write = vi.fn(async () => {});
     const screen = mountTerminal(mountedHost(), "pan-benchmark", binding({ write }));
     await nextFrame();
+    const before = screen.read();
 
     const report = await screen.benchmark({
       mode: "printable",
@@ -194,6 +195,7 @@ describe("a mounted terminal", () => {
     expect(report.samplesMs).toHaveLength(3);
     expect(report.cols).toBeGreaterThan(0);
     expect(report.rows).toBeGreaterThan(0);
+    expect(screen.read()).toBe(before);
     expect(write).not.toHaveBeenCalled();
     screen.stop();
   });
