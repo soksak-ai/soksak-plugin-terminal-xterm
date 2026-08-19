@@ -6,6 +6,12 @@ import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { attachTerminalInputTrace, type BrowserInputTrace, type TerminalInputTrace } from "./inputTrace";
 import { observeTerminalTheme, readTerminalTheme } from "./theme";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
+import {
+  createRendererPayload,
+  summarizeRendererSamples,
+  type RendererBenchmarkMode,
+  type RendererSampleSummary,
+} from "./rendererBenchmark";
 
 /** What the host answers with when a session opens. Opaque here: the host mints
  *  it and every later call names the session by it. */
@@ -50,6 +56,22 @@ export interface TerminalScreen {
   focus: () => boolean;
   /** Commit transient IME state and release the source responder before another view focuses. */
   prepareFocusTransfer: () => void;
+  benchmark: (request: RendererBenchmarkRequest) => Promise<RendererBenchmarkReport>;
+}
+
+export interface RendererBenchmarkRequest {
+  mode: RendererBenchmarkMode;
+  bytes: number;
+  repetitions: number;
+}
+
+export interface RendererBenchmarkReport extends RendererSampleSummary {
+  engine: "xterm";
+  mode: RendererBenchmarkMode;
+  bytesPerSample: number;
+  repetitions: number;
+  cols: number;
+  rows: number;
 }
 
 export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBinding): TerminalScreen {
@@ -184,6 +206,28 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
       // Flush the former first, then blur the canonical textarea so WebKit commits the latter.
       ime.flushPending();
       terminal.textarea?.blur();
+    },
+    benchmark: async (request) => {
+      const payload = createRendererPayload(request.mode, request.bytes);
+      const samplesMs: number[] = [];
+      for (let index = 0; index < request.repetitions; index += 1) {
+        const started = performance.now();
+        await new Promise<void>((resolve) => {
+          terminal.write(payload, () => {
+            samplesMs.push(performance.now() - started);
+            resolve();
+          });
+        });
+      }
+      return {
+        engine: "xterm",
+        mode: request.mode,
+        bytesPerSample: payload.byteLength,
+        repetitions: request.repetitions,
+        cols: terminal.cols,
+        rows: terminal.rows,
+        ...summarizeRendererSamples(samplesMs, payload.byteLength),
+      };
     },
   };
 }
