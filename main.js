@@ -6947,10 +6947,9 @@ var plugin_default = {
           ko: "\uD130\uBBF8\uB110"
         },
         icon: ">_",
-        placements: [
-          "center"
+        surfaces: [
+          "tab"
         ],
-        defaultPlacement: "center",
         status: [
           "connecting",
           "error"

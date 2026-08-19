@@ -87,10 +87,9 @@
           "ko": "터미널"
         },
         "icon": ">_",
-        "placements": [
-          "center"
+        "surfaces": [
+          "tab"
         ],
-        "defaultPlacement": "center",
         "status": [
           "connecting",
           "error"
