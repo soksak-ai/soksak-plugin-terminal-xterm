@@ -188,11 +188,6 @@ export function activate(ctx: ActivateContext): void {
   });
   ctx.subscriptions.push(view);
 
-  const capturePrepare = app.events?.on?.("capture.prepare", () => {
-    for (const mounted of screens.values()) mounted.screen.refresh();
-  });
-  if (capturePrepare) ctx.subscriptions.push(capturePrepare);
-
   register(app, ctx, "clear", {
     description: sentence("terminal.clear.description"),
     params: {},

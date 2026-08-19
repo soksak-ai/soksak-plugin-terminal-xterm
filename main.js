@@ -6960,6 +6960,8 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
   };
   const observer = new ResizeObserver(scheduleResize);
   observer.observe(host);
+  const capturePrepare = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
+  window.addEventListener("soksak:capture-prepare", capturePrepare);
   const input = terminal.onData((data) => {
     record({ kind: "xterm-data", data });
     routeXtermData(ime, write, data);
@@ -6969,6 +6971,7 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
     if (disposed) return;
     disposed = true;
     observer.disconnect();
+    window.removeEventListener("soksak:capture-prepare", capturePrepare);
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     stopTheme();
     output?.dispose();
@@ -7326,10 +7329,6 @@ function activate(ctx) {
     }
   });
   ctx.subscriptions.push(view);
-  const capturePrepare = app.events?.on?.("capture.prepare", () => {
-    for (const mounted of screens.values()) mounted.screen.refresh();
-  });
-  if (capturePrepare) ctx.subscriptions.push(capturePrepare);
   register(app, ctx, "clear", {
     description: sentence("terminal.clear.description"),
     params: {},

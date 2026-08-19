@@ -264,6 +264,8 @@ export function mountTerminal(
   };
   const observer = new ResizeObserver(scheduleResize);
   observer.observe(host);
+  const capturePrepare = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
+  window.addEventListener("soksak:capture-prepare", capturePrepare);
   const input = terminal.onData((data) => {
     record({ kind: "xterm-data", data });
     routeXtermData(ime, write, data);
@@ -274,6 +276,7 @@ export function mountTerminal(
     if (disposed) return;
     disposed = true;
     observer.disconnect();
+    window.removeEventListener("soksak:capture-prepare", capturePrepare);
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     stopTheme();
     output?.dispose();
