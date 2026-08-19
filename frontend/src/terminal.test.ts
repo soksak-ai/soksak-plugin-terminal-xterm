@@ -94,11 +94,14 @@ describe("a mounted terminal", () => {
       return { ok: true, data: {} };
     });
 
-    const screen = mountTerminal(mountedHost(), "pan-warm", warm);
+    const host = mountedHost();
+    const screen = mountTerminal(host, "pan-warm", warm);
     await opened;
 
     expect(order).toEqual(["resize", "rehydrate", 'open:{"fromSeq":37}']);
     expect(screen.read()).toContain("__warm_screen__");
+    expect(host.querySelector<HTMLElement>('[data-node="screen"]')?.dataset.terminalRestore)
+      .toBe("warm");
     screen.stop();
   });
 
