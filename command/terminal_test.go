@@ -22,6 +22,7 @@ type openCall struct {
 	stream     string
 	key        string
 	cols, rows uint16
+	fromSeq    *uint64
 	cwd, shell string
 	placed     bool
 }
@@ -332,21 +333,22 @@ func TestPlacementReachesAnOwnerThatCanPerformIt(t *testing.T) {
 	}
 }
 
-func TestSpawnRefusesAReplayThisBuildCannotPerform(t *testing.T) {
+func TestSpawnPassesTheWarmHandoffSequenceToTheOwner(t *testing.T) {
 	owner := newFakeOwner()
 	registry := registered(t, owner)
 
 	args := pane("w-1", "v2", 80, 24)
 	args["replay"] = raw(`{"fromSeq":4096}`)
-	if _, err := registry.Invoke("spawn_terminal", args); err == nil {
-		t.Fatal("a fromSeq replay must be refused rather than answered with an empty tail")
-	}
-	if owner.openCount() != 0 {
-		t.Fatal("a refused replay must not open a PTY")
+	spawn(t, registry, args)
+	if owner.openCount() != 1 || owner.opens[0].fromSeq == nil || *owner.opens[0].fromSeq != 4096 {
+		t.Fatalf("opens = %+v, want warm handoff from sequence 4096", owner.opens)
 	}
 
 	args["replay"] = raw(`"none"`)
 	spawn(t, registry, args)
+	if owner.opens[1].fromSeq != nil {
+		t.Fatalf("none replay passed a sequence: %+v", owner.opens[1])
+	}
 }
 
 func TestSpawnAnswersWithTheOwnersHandle(t *testing.T) {
