@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	terminalcontract "github.com/soksak/soksak-contract-terminal"
 	"github.com/soksak/soksak-core/core/control"
 )
 
@@ -49,7 +50,11 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 	if binary == "" {
 		t.Skip("SOKSAK_PTYD_BIN is required for the daemon integration gate")
 	}
-	home := t.TempDir()
+	home, err := os.MkdirTemp("/tmp", "sokpty-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	sink := &daemonRecordingSink{wake: make(chan struct{}, 1)}
 	options := DaemonOptions{
 		Home:         home,
@@ -92,7 +97,11 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = second.Kill(handle) })
+	t.Cleanup(func() {
+		_ = second.Kill(handle)
+		_ = second.request(terminalcontract.OperationRequest{Op: "shutdown"}, false, nil)
+		_ = second.ServiceShutdown()
+	})
 	reattached, err := second.Open("win-test/tab-test", "test-output", 80, 24)
 	if err != nil {
 		t.Fatal(err)
