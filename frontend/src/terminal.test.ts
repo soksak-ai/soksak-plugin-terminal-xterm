@@ -172,6 +172,31 @@ describe("a mounted terminal", () => {
 
     expect(dispose).toHaveBeenCalled();
   });
+
+  it("measures the actual xterm write queue without writing to the shell", async () => {
+    const write = vi.fn(async () => {});
+    const screen = mountTerminal(mountedHost(), "pan-benchmark", binding({ write }));
+    await nextFrame();
+
+    const report = await screen.benchmark({
+      mode: "printable",
+      bytes: 4096,
+      repetitions: 3,
+    });
+
+    expect(report).toMatchObject({
+      engine: "xterm",
+      mode: "printable",
+      bytesPerSample: 4096,
+      repetitions: 3,
+      totalBytes: 12_288,
+    });
+    expect(report.samplesMs).toHaveLength(3);
+    expect(report.cols).toBeGreaterThan(0);
+    expect(report.rows).toBeGreaterThan(0);
+    expect(write).not.toHaveBeenCalled();
+    screen.stop();
+  });
 });
 
 describe("the host's view of a mounted terminal", () => {
