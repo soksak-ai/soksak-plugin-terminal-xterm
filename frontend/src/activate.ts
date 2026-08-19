@@ -315,6 +315,57 @@ export function activate(ctx: ActivateContext): void {
       return { view: found.key, cwd: app.terminal?.getCwd?.(found.key) ?? null };
     },
   });
+
+  register(app, ctx, "benchmark.render", {
+    description: sentence("terminal.benchmark.description"),
+    params: {
+      mode: {
+        type: "string",
+        enum: ["printable", "adversarial"],
+        default: "printable",
+        description: sentence("terminal.benchmark.param.mode"),
+      },
+      bytes: {
+        type: "number",
+        default: 1_048_576,
+        description: sentence("terminal.benchmark.param.bytes"),
+      },
+      repetitions: {
+        type: "number",
+        default: 3,
+        description: sentence("terminal.benchmark.param.repetitions"),
+      },
+      view: viewParam,
+    },
+    returns: "{ engine, view, mode, bytesPerSample, repetitions, samplesMs, elapsedMs, totalBytes, p50Ms, p95Ms, maxMs, throughputMiBps, cols, rows }",
+    message: (data: Record<string, unknown>) =>
+      t("terminal.benchmark.answer", app.locale())
+        .replace("{throughput}", Number(data.throughputMiBps ?? 0).toFixed(2)),
+    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const mode = params.mode ?? "printable";
+      const bytes = params.bytes ?? 1_048_576;
+      const repetitions = params.repetitions ?? 3;
+      if (
+        (mode !== "printable" && mode !== "adversarial") ||
+        !Number.isInteger(bytes) || Number(bytes) < 1 || Number(bytes) > 16 * 1024 * 1024 ||
+        !Number.isInteger(repetitions) || Number(repetitions) < 1 || Number(repetitions) > 20
+      ) {
+        return {
+          ok: false,
+          code: "INVALID_PARAMS",
+          message: t("terminal.benchmark.invalid", app.locale()),
+        };
+      }
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const measured = await found.screen.benchmark({
+        mode,
+        bytes: Number(bytes),
+        repetitions: Number(repetitions),
+      });
+      return { view: found.key, ...measured };
+    },
+  });
 }
 
 // The session the last mount opened, for the paths that address the shell

@@ -6743,6 +6743,58 @@ var WebkitImeAddon = class {
   }
 };
 
+// src/rendererBenchmark.ts
+var PRINTABLE_LINE_BYTES = 80;
+function createRendererPayload(mode, bytes) {
+  if (!Number.isInteger(bytes) || bytes < 1) {
+    throw new Error("bytes must be a positive integer");
+  }
+  const payload = new Uint8Array(bytes);
+  if (mode === "printable") {
+    for (let index = 0; index < bytes; index += 1) {
+      const column = index % PRINTABLE_LINE_BYTES;
+      payload[index] = column === PRINTABLE_LINE_BYTES - 2 ? 13 : column === PRINTABLE_LINE_BYTES - 1 ? 10 : 32 + (index * 17 + 11) % 95;
+    }
+    return payload;
+  }
+  if (mode !== "adversarial") {
+    throw new Error(`unknown renderer benchmark mode: ${String(mode)}`);
+  }
+  let state = 2654435769;
+  for (let index = 0; index < bytes; index += 1) {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    payload[index] = state & 255;
+  }
+  return payload;
+}
+function summarizeRendererSamples(samplesMs, bytesPerSample) {
+  if (samplesMs.length === 0) throw new Error("at least one sample is required");
+  if (!Number.isInteger(bytesPerSample) || bytesPerSample < 1) {
+    throw new Error("bytesPerSample must be a positive integer");
+  }
+  if (samplesMs.some((sample) => !Number.isFinite(sample) || sample < 0)) {
+    throw new Error("samples must be finite non-negative milliseconds");
+  }
+  const sorted = [...samplesMs].sort((left, right) => left - right);
+  const elapsedMs = samplesMs.reduce((total, sample) => total + sample, 0);
+  const totalBytes = bytesPerSample * samplesMs.length;
+  return {
+    samplesMs: [...samplesMs],
+    elapsedMs,
+    totalBytes,
+    p50Ms: nearestRank(sorted, 0.5),
+    p95Ms: nearestRank(sorted, 0.95),
+    maxMs: sorted[sorted.length - 1],
+    throughputMiBps: elapsedMs === 0 ? Number.POSITIVE_INFINITY : totalBytes / (1024 * 1024) / (elapsedMs / 1e3)
+  };
+}
+function nearestRank(sorted, quantile) {
+  const rank = Math.max(1, Math.ceil(quantile * sorted.length));
+  return sorted[rank - 1];
+}
+
 // src/terminal.ts
 function mountTerminal(host, id, binding) {
   injectStyles();
@@ -6862,6 +6914,28 @@ function mountTerminal(host, id, binding) {
     prepareFocusTransfer: () => {
       ime.flushPending();
       terminal.textarea?.blur();
+    },
+    benchmark: async (request) => {
+      const payload = createRendererPayload(request.mode, request.bytes);
+      const samplesMs = [];
+      for (let index = 0; index < request.repetitions; index += 1) {
+        const started = performance.now();
+        await new Promise((resolve) => {
+          terminal.write(payload, () => {
+            samplesMs.push(performance.now() - started);
+            resolve();
+          });
+        });
+      }
+      return {
+        engine: "xterm",
+        mode: request.mode,
+        bytesPerSample: payload.byteLength,
+        repetitions: request.repetitions,
+        cols: terminal.cols,
+        rows: terminal.rows,
+        ...summarizeRendererSamples(samplesMs, payload.byteLength)
+      };
     }
   };
 }
@@ -6935,6 +7009,13 @@ var plugin_default = {
         title: {
           en: "Working directory",
           ko: "\uC791\uC5C5 \uB514\uB809\uD130\uB9AC"
+        }
+      },
+      {
+        name: "benchmark.render",
+        title: {
+          en: "Measure renderer parser",
+          ko: "\uB80C\uB354\uB7EC \uD30C\uC11C \uCE21\uC815"
         }
       }
     ],
@@ -7054,6 +7135,30 @@ var MESSAGES = {
   "terminal.cwd.answer": {
     en: "Working directory {cwd}",
     ko: "\uC791\uC5C5 \uB514\uB809\uD130\uB9AC {cwd}"
+  },
+  "terminal.benchmark.description": {
+    en: "Measure this renderer's parser queue with a deterministic byte workload.",
+    ko: "\uACB0\uC815\uC801 \uBC14\uC774\uD2B8 \uC791\uC5C5\uC73C\uB85C \uC774 \uB80C\uB354\uB7EC\uC758 \uD30C\uC11C \uD050\uB97C \uCE21\uC815\uD569\uB2C8\uB2E4."
+  },
+  "terminal.benchmark.param.mode": {
+    en: "Workload: printable or adversarial",
+    ko: "\uC791\uC5C5 \uC720\uD615: printable \uB610\uB294 adversarial"
+  },
+  "terminal.benchmark.param.bytes": {
+    en: "Bytes per sample (1 to 16777216)",
+    ko: "\uD45C\uBCF8\uB2F9 \uBC14\uC774\uD2B8 \uC218(1~16777216)"
+  },
+  "terminal.benchmark.param.repetitions": {
+    en: "Sample count (1 to 20)",
+    ko: "\uD45C\uBCF8 \uC218(1~20)"
+  },
+  "terminal.benchmark.answer": {
+    en: "Renderer parser throughput {throughput} MiB/s",
+    ko: "\uB80C\uB354\uB7EC \uD30C\uC11C \uCC98\uB9AC\uB7C9 {throughput} MiB/s"
+  },
+  "terminal.benchmark.invalid": {
+    en: "mode must be printable or adversarial, bytes must be 1..16777216, and repetitions must be 1..20",
+    ko: "mode\uB294 printable \uB610\uB294 adversarial, bytes\uB294 1..16777216, repetitions\uB294 1..20\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4."
   }
 };
 function t(key, locale) {
@@ -7230,6 +7335,50 @@ function activate(ctx) {
       const found = target(params, context);
       if (isRefusal(found)) return found;
       return { view: found.key, cwd: app.terminal?.getCwd?.(found.key) ?? null };
+    }
+  });
+  register(app, ctx, "benchmark.render", {
+    description: sentence("terminal.benchmark.description"),
+    params: {
+      mode: {
+        type: "string",
+        enum: ["printable", "adversarial"],
+        default: "printable",
+        description: sentence("terminal.benchmark.param.mode")
+      },
+      bytes: {
+        type: "number",
+        default: 1048576,
+        description: sentence("terminal.benchmark.param.bytes")
+      },
+      repetitions: {
+        type: "number",
+        default: 3,
+        description: sentence("terminal.benchmark.param.repetitions")
+      },
+      view: viewParam
+    },
+    returns: "{ engine, view, mode, bytesPerSample, repetitions, samplesMs, elapsedMs, totalBytes, p50Ms, p95Ms, maxMs, throughputMiBps, cols, rows }",
+    message: (data) => t("terminal.benchmark.answer", app.locale()).replace("{throughput}", Number(data.throughputMiBps ?? 0).toFixed(2)),
+    handler: async (params, context) => {
+      const mode = params.mode ?? "printable";
+      const bytes = params.bytes ?? 1048576;
+      const repetitions = params.repetitions ?? 3;
+      if (mode !== "printable" && mode !== "adversarial" || !Number.isInteger(bytes) || Number(bytes) < 1 || Number(bytes) > 16 * 1024 * 1024 || !Number.isInteger(repetitions) || Number(repetitions) < 1 || Number(repetitions) > 20) {
+        return {
+          ok: false,
+          code: "INVALID_PARAMS",
+          message: t("terminal.benchmark.invalid", app.locale())
+        };
+      }
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const measured = await found.screen.benchmark({
+        mode,
+        bytes: Number(bytes),
+        repetitions: Number(repetitions)
+      });
+      return { view: found.key, ...measured };
     }
   });
 }

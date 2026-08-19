@@ -82,6 +82,30 @@ const MESSAGES = {
     en: "Working directory {cwd}",
     ko: "작업 디렉터리 {cwd}",
   },
+  "terminal.benchmark.description": {
+    en: "Measure this renderer's parser queue with a deterministic byte workload.",
+    ko: "결정적 바이트 작업으로 이 렌더러의 파서 큐를 측정합니다.",
+  },
+  "terminal.benchmark.param.mode": {
+    en: "Workload: printable or adversarial",
+    ko: "작업 유형: printable 또는 adversarial",
+  },
+  "terminal.benchmark.param.bytes": {
+    en: "Bytes per sample (1 to 16777216)",
+    ko: "표본당 바이트 수(1~16777216)",
+  },
+  "terminal.benchmark.param.repetitions": {
+    en: "Sample count (1 to 20)",
+    ko: "표본 수(1~20)",
+  },
+  "terminal.benchmark.answer": {
+    en: "Renderer parser throughput {throughput} MiB/s",
+    ko: "렌더러 파서 처리량 {throughput} MiB/s",
+  },
+  "terminal.benchmark.invalid": {
+    en: "mode must be printable or adversarial, bytes must be 1..16777216, and repetitions must be 1..20",
+    ko: "mode는 printable 또는 adversarial, bytes는 1..16777216, repetitions는 1..20이어야 합니다.",
+  },
 } as const;
 
 export type MessageKey = keyof typeof MESSAGES;

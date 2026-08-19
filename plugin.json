@@ -57,6 +57,13 @@
           "en": "Working directory",
           "ko": "작업 디렉터리"
         }
+      },
+      {
+        "name": "benchmark.render",
+        "title": {
+          "en": "Measure renderer parser",
+          "ko": "렌더러 파서 측정"
+        }
       }
     ],
     "nodes": [
