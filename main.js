@@ -6819,6 +6819,7 @@ function mountTerminal(host, id, binding) {
   let output = null;
   let io = null;
   let disposed = false;
+  let opening = false;
   let traceSequence = 0;
   const pendingTrace = [];
   const record = (event) => {
@@ -6852,8 +6853,36 @@ function mountTerminal(host, id, binding) {
     fit.fit();
     if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
   };
+  const openWhenSized = () => {
+    if (disposed || opening || handle !== null || !host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
+    resizeNow();
+    opening = true;
+    void binding.open(id, terminal.cols || 80, terminal.rows || 24).then(
+      (opened) => {
+        opening = false;
+        if (disposed) {
+          void binding.close(opened);
+          return;
+        }
+        handle = opened;
+        output = binding.onData(opened, (bytes) => terminal.write(bytes));
+        io = binding.registerIo(id, {
+          readBuffer: (lines) => readScreen(terminal, lines),
+          sendInput: (data) => {
+            void write(data);
+          }
+        });
+        for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
+        resizeNow();
+      },
+      () => {
+        opening = false;
+      }
+    );
+  };
   let resizeFrame = null;
   const scheduleResize = () => {
+    openWhenSized();
     if (resizeFrame !== null) return;
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = null;
@@ -6866,26 +6895,7 @@ function mountTerminal(host, id, binding) {
     record({ kind: "xterm-data", data });
     routeXtermData(ime, write, data);
   });
-  requestAnimationFrame(() => {
-    if (disposed || !host.isConnected) return;
-    resizeNow();
-    void binding.open(id, terminal.cols || 80, terminal.rows || 24).then((opened) => {
-      if (disposed) {
-        void binding.close(opened);
-        return;
-      }
-      handle = opened;
-      output = binding.onData(opened, (bytes) => terminal.write(bytes));
-      io = binding.registerIo(id, {
-        readBuffer: (lines) => readScreen(terminal, lines),
-        sendInput: (data) => {
-          void write(data);
-        }
-      });
-      for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
-      resizeNow();
-    });
-  });
+  queueMicrotask(openWhenSized);
   const stop = () => {
     if (disposed) return;
     disposed = true;

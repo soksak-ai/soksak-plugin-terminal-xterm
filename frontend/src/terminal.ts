@@ -104,6 +104,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
   let output: { dispose(): void } | null = null;
   let io: { dispose(): void } | null = null;
   let disposed = false;
+  let opening = false;
   let traceSequence = 0;
   const pendingTrace: TerminalInputTrace[] = [];
   const record = (event: BrowserInputTrace): void => {
@@ -141,8 +142,37 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     fit.fit();
     if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
   };
+  const openWhenSized = () => {
+    if (
+      disposed || opening || handle !== null || !host.isConnected ||
+      host.clientWidth <= 0 || host.clientHeight <= 0
+    ) return;
+    resizeNow();
+    opening = true;
+    void binding.open(id, terminal.cols || 80, terminal.rows || 24).then(
+      (opened) => {
+        opening = false;
+        if (disposed) {
+          void binding.close(opened);
+          return;
+        }
+        handle = opened;
+        output = binding.onData(opened, (bytes) => terminal.write(bytes));
+        io = binding.registerIo(id, {
+          readBuffer: (lines) => readScreen(terminal, lines),
+          sendInput: (data) => { void write(data); },
+        });
+        for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
+        resizeNow();
+      },
+      () => {
+        opening = false;
+      },
+    );
+  };
   let resizeFrame: number | null = null;
   const scheduleResize = () => {
+    openWhenSized();
     if (resizeFrame !== null) return;
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = null;
@@ -155,27 +185,7 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     record({ kind: "xterm-data", data });
     routeXtermData(ime, write, data);
   });
-
-  requestAnimationFrame(() => {
-    if (disposed || !host.isConnected) return;
-    resizeNow();
-    void binding.open(id, terminal.cols || 80, terminal.rows || 24).then((opened) => {
-      if (disposed) { void binding.close(opened); return; }
-      handle = opened;
-      // Bytes only after the session exists: the handle is what addresses them,
-      // and there is nothing to subscribe to before it.
-      output = binding.onData(opened, (bytes) => terminal.write(bytes));
-      // The host reads this screen and types into it through this registration.
-      // Registering before the session exists would hand over a screen with no
-      // shell behind it, and a write would go nowhere while reporting success.
-      io = binding.registerIo(id, {
-        readBuffer: (lines) => readScreen(terminal, lines),
-        sendInput: (data) => { void write(data); },
-      });
-      for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
-      resizeNow();
-    });
-  });
+  queueMicrotask(openWhenSized);
 
   const stop = (): void => {
     if (disposed) return;
