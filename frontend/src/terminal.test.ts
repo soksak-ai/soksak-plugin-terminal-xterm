@@ -67,6 +67,17 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("a mounted terminal", () => {
+  it("opens from the mount event even when animation frames are suspended", async () => {
+    const open = vi.fn(async () => SESSION);
+    const screen = mountTerminal(mountedHost(), "pan-background", binding({ open }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(open).toHaveBeenCalledTimes(1);
+    screen.stop();
+  });
+
   it("focuses the canonical textarea and releases it before transfer", () => {
     const host = mountedHost();
     const screen = mountTerminal(host, "pan-focus", binding());
