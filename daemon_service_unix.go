@@ -251,10 +251,22 @@ func (service *DaemonService) Status() []Status {
 }
 
 func (service *DaemonService) ServiceShutdown() error {
+	service.Reap()
+	service.mu.Lock()
+	if service.control != nil {
+		_ = service.control.Close()
+		service.control = nil
+		service.reader = nil
+	}
+	service.mu.Unlock()
+	return nil
+}
+
+func (service *DaemonService) Reap() int {
 	service.mu.Lock()
 	if service.stopped {
 		service.mu.Unlock()
-		return nil
+		return 0
 	}
 	service.stopped = true
 	sessions := service.sessions
@@ -266,14 +278,7 @@ func (service *DaemonService) ServiceShutdown() error {
 		}, false, nil)
 		_ = session.connection.Close()
 	}
-	service.mu.Lock()
-	if service.control != nil {
-		_ = service.control.Close()
-		service.control = nil
-		service.reader = nil
-	}
-	service.mu.Unlock()
-	return nil
+	return len(sessions)
 }
 
 func (service *DaemonService) token() (string, error) {

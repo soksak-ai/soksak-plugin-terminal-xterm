@@ -12,11 +12,11 @@ import "github.com/soksak/soksak-plugin-terminal-xterm/command"
 // The registration itself is the host's, next to the service list: the plugin
 // implements ServiceName and ServiceShutdown, which are plain method sets, but
 // ServiceStartup takes a framework type and a plugin does not name a framework.
-func CommandSessions(service *Service) command.Sessions {
+func CommandSessions(service Owner) command.Sessions {
 	return commandSessions{service: service}
 }
 
-type commandSessions struct{ service *Service }
+type commandSessions struct{ service Owner }
 
 func (sessions commandSessions) Open(key string, stream string, cols, rows uint16) (command.Handle, error) {
 	handle, err := sessions.service.Open(key, stream, cols, rows)
