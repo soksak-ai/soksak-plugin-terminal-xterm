@@ -184,6 +184,13 @@ func (owner daemonOwner) PaneAlive(string) (bool, error) { return owner.alive, n
 func (owner daemonOwner) DaemonStatus() (any, error) {
 	return map[string]any{"pid": 77, "sessions": 1}, nil
 }
+func (owner daemonOwner) SidecarRequest(request json.RawMessage) (any, error) {
+	var value map[string]any
+	if err := json.Unmarshal(request, &value); err != nil {
+		return nil, err
+	}
+	return map[string]any{"ok": true, "request": value}, nil
+}
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -634,6 +641,20 @@ func TestDaemonStatusIsServedByADaemonOwner(t *testing.T) {
 	status := answer.(map[string]any)
 	if status["pid"] != 77 || status["sessions"] != 1 {
 		t.Fatalf("pty_daemon_status = %#v", status)
+	}
+}
+
+func TestSidecarRequestIsRelayedByADaemonOwner(t *testing.T) {
+	registry := registered(t, daemonOwner{fakeOwner: newFakeOwner(), alive: true})
+	answer, err := registry.Invoke("pty_sidecar_request", control.Args{
+		"request": raw(`{"op":"status"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := answer.(map[string]any)["request"].(map[string]any)
+	if request["op"] != "status" {
+		t.Fatalf("pty_sidecar_request = %#v", answer)
 	}
 }
 
