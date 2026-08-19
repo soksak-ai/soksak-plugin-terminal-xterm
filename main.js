@@ -6875,6 +6875,12 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
     const decoded = atob(paint);
     const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
     await new Promise((resolve) => terminal.write(bytes, resolve));
+    setRestoreStatus("buffered");
+    const rendered = terminal.onRender(() => {
+      rendered.dispose();
+      if (!disposed) setRestoreStatus("warm");
+    });
+    terminal.refresh(0, Math.max(0, terminal.rows - 1));
   };
   const restore = async () => {
     setRestoreStatus("checking");
@@ -6893,7 +6899,6 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
       throw new Error("rehydrate returned an invalid paint or uptoSeq");
     }
     await paintSnapshot(restored.paint);
-    setRestoreStatus("warm");
     return { fromSeq: restored.uptoSeq };
   };
   const openWhenSized = () => {
@@ -6922,6 +6927,7 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
         });
         for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
         resizeNow();
+        terminal.refresh(0, Math.max(0, terminal.rows - 1));
         if (host.dataset.terminalRestore === "checking") {
           void binding.sidecarRequest({
             op: "ensureSession",

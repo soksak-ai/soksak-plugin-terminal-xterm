@@ -100,8 +100,11 @@ describe("a mounted terminal", () => {
 
     expect(order).toEqual(["resize", "rehydrate", 'open:{"fromSeq":37}']);
     expect(screen.read()).toContain("__warm_screen__");
+    // jsdom has no canvas renderer, so parsing is the last observable phase in
+    // this unit test. A running WebKit view advances this to "warm" only from
+    // xterm's onRender event.
     expect(host.querySelector<HTMLElement>('[data-node="screen"]')?.dataset.terminalRestore)
-      .toBe("warm");
+      .toBe("buffered");
     screen.stop();
   });
 
