@@ -210,14 +210,23 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     benchmark: async (request) => {
       const payload = createRendererPayload(request.mode, request.bytes);
       const samplesMs: number[] = [];
-      for (let index = 0; index < request.repetitions; index += 1) {
-        const started = performance.now();
-        await new Promise<void>((resolve) => {
-          terminal.write(payload, () => {
-            samplesMs.push(performance.now() - started);
-            resolve();
+      const scratch = new Terminal({
+        cols: terminal.cols,
+        rows: terminal.rows,
+        scrollback: terminal.options.scrollback,
+      });
+      try {
+        for (let index = 0; index < request.repetitions; index += 1) {
+          const started = performance.now();
+          await new Promise<void>((resolve) => {
+            scratch.write(payload, () => {
+              samplesMs.push(performance.now() - started);
+              resolve();
+            });
           });
-        });
+        }
+      } finally {
+        scratch.dispose();
       }
       return {
         engine: "xterm",

@@ -59,7 +59,7 @@
         }
       },
       {
-        "name": "benchmark.render",
+        "name": "benchmark.parser",
         "title": {
           "en": "Measure renderer parser",
           "ko": "렌더러 파서 측정"

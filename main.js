@@ -6918,14 +6918,23 @@ function mountTerminal(host, id, binding) {
     benchmark: async (request) => {
       const payload = createRendererPayload(request.mode, request.bytes);
       const samplesMs = [];
-      for (let index = 0; index < request.repetitions; index += 1) {
-        const started = performance.now();
-        await new Promise((resolve) => {
-          terminal.write(payload, () => {
-            samplesMs.push(performance.now() - started);
-            resolve();
+      const scratch = new import_xterm2.Terminal({
+        cols: terminal.cols,
+        rows: terminal.rows,
+        scrollback: terminal.options.scrollback
+      });
+      try {
+        for (let index = 0; index < request.repetitions; index += 1) {
+          const started = performance.now();
+          await new Promise((resolve) => {
+            scratch.write(payload, () => {
+              samplesMs.push(performance.now() - started);
+              resolve();
+            });
           });
-        });
+        }
+      } finally {
+        scratch.dispose();
       }
       return {
         engine: "xterm",
@@ -7012,7 +7021,7 @@ var plugin_default = {
         }
       },
       {
-        name: "benchmark.render",
+        name: "benchmark.parser",
         title: {
           en: "Measure renderer parser",
           ko: "\uB80C\uB354\uB7EC \uD30C\uC11C \uCE21\uC815"
@@ -7337,7 +7346,7 @@ function activate(ctx) {
       return { view: found.key, cwd: app.terminal?.getCwd?.(found.key) ?? null };
     }
   });
-  register(app, ctx, "benchmark.render", {
+  register(app, ctx, "benchmark.parser", {
     description: sentence("terminal.benchmark.description"),
     params: {
       mode: {

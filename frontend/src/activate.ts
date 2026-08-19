@@ -316,7 +316,7 @@ export function activate(ctx: ActivateContext): void {
     },
   });
 
-  register(app, ctx, "benchmark.render", {
+  register(app, ctx, "benchmark.parser", {
     description: sentence("terminal.benchmark.description"),
     params: {
       mode: {
