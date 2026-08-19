@@ -157,9 +157,12 @@ export function mountTerminal(
     if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
   };
   const setRestoreStatus = (state: string, message?: string): void => {
-    host.dataset.terminalRestore = state;
-    if (message) host.dataset.terminalRestoreError = message;
-    else delete host.dataset.terminalRestoreError;
+    for (const node of [host, terminal.element]) {
+      if (!node) continue;
+      node.dataset.terminalRestore = state;
+      if (message) node.dataset.terminalRestoreError = message;
+      else delete node.dataset.terminalRestoreError;
+    }
     reportStatus(state === "error" || state === "degraded"
       ? { code: `terminal.restore.${state}`, message }
       : null);
@@ -273,8 +276,11 @@ export function mountTerminal(
     if (handle) void binding.close(handle);
     terminal.dispose();
     delete host.dataset.terminalIme;
-    delete host.dataset.terminalRestore;
-    delete host.dataset.terminalRestoreError;
+    for (const node of [host, terminal.element]) {
+      if (!node) continue;
+      delete node.dataset.terminalRestore;
+      delete node.dataset.terminalRestoreError;
+    }
   };
 
   return {
