@@ -36,14 +36,14 @@ func TestReapAnswersHowManySessionsItClosed(t *testing.T) {
 		oneSleepingShell(t, service, id)
 	}
 
-	if reaped := service.Reap(); reaped != 3 {
-		t.Errorf("Reap answered %d, want 3", reaped)
+	if reaped := service.Reap(); reaped.LocalReaped != 3 || reaped.DaemonTransferred != 0 {
+		t.Errorf("Reap answered %#v, want 3 local sessions", reaped)
 	}
 	// Idempotent, and the second answer is zero rather than three: nothing was
 	// reaped the second time, and a count that repeated itself would report work
 	// that did not happen.
-	if reaped := service.Reap(); reaped != 0 {
-		t.Errorf("a second Reap answered %d, want 0", reaped)
+	if reaped := service.Reap(); reaped != (Release{}) {
+		t.Errorf("a second Reap answered %#v, want zero", reaped)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestServiceShutdownReapsThroughReap(t *testing.T) {
 	if err := service.ServiceShutdown(); err != nil {
 		t.Fatalf("shutdown: %v", err)
 	}
-	if reaped := service.Reap(); reaped != 0 {
-		t.Errorf("shutdown left %d sessions for Reap to find", reaped)
+	if reaped := service.Reap(); reaped != (Release{}) {
+		t.Errorf("shutdown left sessions for Reap to find: %#v", reaped)
 	}
 }

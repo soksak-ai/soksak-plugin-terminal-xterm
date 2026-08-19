@@ -44,4 +44,4 @@ func (*DaemonService) TraceInput(Handle, InputTrace) error {
 	return errors.New("PTY daemon unavailable")
 }
 func (*DaemonService) Status() []Status { return nil }
-func (*DaemonService) Reap() int        { return 0 }
+func (*DaemonService) Reap() Release    { return Release{} }

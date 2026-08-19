@@ -299,11 +299,11 @@ func (service *Service) ServiceShutdown() error {
 //
 // Idempotent, and a second call answers zero rather than the first count: a
 // number that repeated itself would report work that did not happen.
-func (service *Service) Reap() int {
+func (service *Service) Reap() Release {
 	service.mu.Lock()
 	if service.stopped {
 		service.mu.Unlock()
-		return 0
+		return Release{}
 	}
 	service.stopped = true
 	sessions := service.sessions
@@ -320,5 +320,5 @@ func (service *Service) Reap() int {
 	for _, id := range ids {
 		closeSession(sessions[id])
 	}
-	return len(ids)
+	return Release{LocalReaped: len(ids)}
 }

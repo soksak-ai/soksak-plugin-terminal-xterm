@@ -1,5 +1,10 @@
 package terminal
 
+type Release struct {
+	LocalReaped       int
+	DaemonTransferred int
+}
+
 type Owner interface {
 	ServiceName() string
 	ServiceShutdown() error
@@ -9,5 +14,5 @@ type Owner interface {
 	Close(handle Handle) error
 	TraceInput(handle Handle, event InputTrace) error
 	Status() []Status
-	Reap() int
+	Reap() Release
 }

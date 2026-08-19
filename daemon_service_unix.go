@@ -463,11 +463,11 @@ func (service *DaemonService) ServiceShutdown() error {
 	return nil
 }
 
-func (service *DaemonService) Reap() int {
+func (service *DaemonService) Reap() Release {
 	service.mu.Lock()
 	if service.stopped {
 		service.mu.Unlock()
-		return 0
+		return Release{}
 	}
 	service.stopped = true
 	sessions := service.sessions
@@ -479,7 +479,7 @@ func (service *DaemonService) Reap() int {
 		}, false, nil)
 		_ = session.connection.Close()
 	}
-	return len(sessions)
+	return Release{DaemonTransferred: len(sessions)}
 }
 
 func (service *DaemonService) token() (string, error) {
