@@ -19,6 +19,7 @@
 package command
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -83,6 +84,10 @@ type Foreground interface {
 type Daemon interface {
 	PaneAlive(paneID string) (bool, error)
 	DaemonStatus() (any, error)
+}
+
+type RestoreSidecar interface {
+	SidecarRequest(request json.RawMessage) (any, error)
 }
 
 // Deps is what the process supplies. Nothing here is read from the environment:
@@ -176,6 +181,7 @@ func Register(registry *control.Registry, deps Deps) {
 	flow, _ := deps.Sessions.(Flow)
 	foreground, _ := deps.Sessions.(Foreground)
 	daemon, _ := deps.Sessions.(Daemon)
+	restoreSidecar, _ := deps.Sessions.(RestoreSidecar)
 
 	declare := func(name, reason string) {
 		if err := registry.DeclareUnserved(name, reason); err != nil {
@@ -455,7 +461,17 @@ func Register(registry *control.Registry, deps Deps) {
 	// a plausible answer for any of them would report an empty store or a
 	// downed component instead of a missing one, and the caller acts on that.
 	declare("pty_read_sealed_screen", sealedScreenUnserved)
-	declare("pty_sidecar_request", sidecarUnserved)
+	if restoreSidecar == nil {
+		declare("pty_sidecar_request", sidecarUnserved)
+	} else {
+		serve("pty_sidecar_request", func(args control.Args) (any, error) {
+			request, err := control.RawArg(args, "request")
+			if err != nil {
+				return nil, err
+			}
+			return restoreSidecar.SidecarRequest(request)
+		})
+	}
 	if daemon == nil {
 		declare("pty_daemon_status", daemonStatusUnserved)
 	} else {

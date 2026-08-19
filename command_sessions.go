@@ -1,6 +1,10 @@
 package terminal
 
-import "github.com/soksak/soksak-plugin-terminal-xterm/command"
+import (
+	"encoding/json"
+
+	"github.com/soksak/soksak-plugin-terminal-xterm/command"
+)
 
 // CommandSessions joins the command group to this owner of the file descriptors.
 //
@@ -18,6 +22,7 @@ func CommandSessions(service Owner) command.Sessions {
 		Ack(Handle, uint64) error
 		PaneAlive(string) (bool, error)
 		DaemonStatus() (any, error)
+		SidecarRequest(json.RawMessage) (any, error)
 	}); ok {
 		return daemonCommandSessions{commandSessions: base, daemon: daemon}
 	}
@@ -32,6 +37,7 @@ type daemonCommandSessions struct {
 		Ack(Handle, uint64) error
 		PaneAlive(string) (bool, error)
 		DaemonStatus() (any, error)
+		SidecarRequest(json.RawMessage) (any, error)
 	}
 }
 
@@ -45,6 +51,10 @@ func (sessions daemonCommandSessions) PaneAlive(paneID string) (bool, error) {
 
 func (sessions daemonCommandSessions) DaemonStatus() (any, error) {
 	return sessions.daemon.DaemonStatus()
+}
+
+func (sessions daemonCommandSessions) SidecarRequest(request json.RawMessage) (any, error) {
+	return sessions.daemon.SidecarRequest(request)
 }
 
 func (sessions commandSessions) Open(key string, stream string, cols, rows uint16) (command.Handle, error) {

@@ -20,15 +20,18 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	terminalcontract "github.com/soksak/soksak-contract-terminal"
 	"github.com/soksak/soksak-core/core/control"
 )
 
 type DaemonOptions struct {
-	Home         string
-	SourceBinary string
-	LoginShell   string
-	Environment  []string
+	Home                string
+	SourceBinary        string
+	LoginShell          string
+	Environment         []string
+	RestoreUnit         string
+	RestoreSourceBinary string
 }
 
 type daemonSession struct {
@@ -38,6 +41,8 @@ type daemonSession struct {
 	connection net.Conn
 	trace      []InputTrace
 }
+
+const sidecarOperationDeadline = 4 * time.Second
 
 type DaemonService struct {
 	mu       sync.Mutex
@@ -58,6 +63,16 @@ func NewDaemonService(sink OutputSink, options DaemonOptions) (*DaemonService, e
 	}
 	if options.LoginShell == "" {
 		return nil, errors.New("terminal daemon login shell is required")
+	}
+	if options.RestoreUnit == "" {
+		options.RestoreUnit = "terminal-alacritty"
+	}
+	if options.RestoreSourceBinary == "" {
+		path, err := terminalcontract.SidecarBinaryPath(options.Home, options.RestoreUnit)
+		if err != nil {
+			return nil, err
+		}
+		options.RestoreSourceBinary = path
 	}
 	return &DaemonService{
 		options:  options,
@@ -230,6 +245,136 @@ func (service *DaemonService) DaemonStatus() (any, error) {
 		"staged":                  true,
 		"stagedPath":              terminalcontract.DaemonBinaryPath(service.options.Home),
 	}, nil
+}
+
+func (service *DaemonService) SidecarRequest(request json.RawMessage) (any, error) {
+	connection, err := service.connectSidecar()
+	if err != nil {
+		if err := service.startSidecar(); err != nil {
+			return nil, err
+		}
+		connection, err = service.connectSidecar()
+		if err != nil {
+			return nil, err
+		}
+	}
+	defer func() { _ = connection.Close() }()
+	if err := connection.SetDeadline(time.Now().Add(sidecarOperationDeadline)); err != nil {
+		return nil, err
+	}
+	reader := bufio.NewReader(connection)
+	token, err := service.token()
+	if err != nil {
+		return nil, err
+	}
+	if err := json.NewEncoder(connection).Encode(map[string]any{
+		"version": terminalcontract.ProtocolVersion,
+		"token":   token,
+	}); err != nil {
+		return nil, err
+	}
+	line, err := reader.ReadBytes('\n')
+	if err != nil {
+		return nil, err
+	}
+	var hello terminalcontract.Reply
+	if err := json.Unmarshal(bytes.TrimSpace(line), &hello); err != nil {
+		return nil, err
+	}
+	if err := hello.DecodeData(nil); err != nil {
+		return nil, err
+	}
+	if _, err := connection.Write(append(append([]byte(nil), request...), '\n')); err != nil {
+		return nil, err
+	}
+	line, err = reader.ReadBytes('\n')
+	if err != nil {
+		return nil, err
+	}
+	var result any
+	if err := json.Unmarshal(bytes.TrimSpace(line), &result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (service *DaemonService) connectSidecar() (net.Conn, error) {
+	return net.DialTimeout("unix", terminalcontract.ServiceSocketPath(service.options.Home), sidecarOperationDeadline)
+}
+
+func (service *DaemonService) startSidecar() error {
+	if service.options.RestoreUnit == "" || service.options.RestoreSourceBinary == "" {
+		return errors.New("terminal restore sidecar source is not declared")
+	}
+	destination, err := terminalcontract.SidecarBinaryPath(service.options.Home, service.options.RestoreUnit)
+	if err != nil {
+		return err
+	}
+	if err := stageDaemonBinary(service.options.RestoreSourceBinary, destination); err != nil {
+		return err
+	}
+	runDirectory := filepath.Dir(terminalcontract.ServiceSocketPath(service.options.Home))
+	if err := os.MkdirAll(runDirectory, 0o700); err != nil {
+		return err
+	}
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = watcher.Close() }()
+	if err := watcher.Add(runDirectory); err != nil {
+		return err
+	}
+	command := exec.Command(destination)
+	command.Env = append(os.Environ(), "SOKSAK_HOME="+service.options.Home)
+	command.Stdin = nil
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	command.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := command.Start(); err != nil {
+		return err
+	}
+	released := false
+	defer func() {
+		if released {
+			return
+		}
+		_ = command.Process.Kill()
+		_, _ = command.Process.Wait()
+	}()
+	if connection, err := service.connectSidecar(); err == nil {
+		_ = connection.Close()
+		if err := command.Process.Release(); err != nil {
+			return err
+		}
+		released = true
+		return nil
+	}
+	timer := time.NewTimer(4 * time.Second)
+	defer timer.Stop()
+	target := terminalcontract.ServiceSocketPath(service.options.Home)
+	for {
+		select {
+		case event, open := <-watcher.Events:
+			if !open {
+				return errors.New("terminal restore sidecar socket watcher closed")
+			}
+			if event.Name == target && event.Op&(fsnotify.Create|fsnotify.Rename) != 0 {
+				if err := command.Process.Release(); err != nil {
+					return err
+				}
+				released = true
+				return nil
+			}
+		case err, open := <-watcher.Errors:
+			if !open {
+				return errors.New("terminal restore sidecar socket watcher closed")
+			}
+			return err
+		case <-timer.C:
+			return errors.New("terminal restore sidecar did not create its service socket within 4s")
+		}
+	}
 }
 
 func (service *DaemonService) daemonSessions() ([]terminalcontract.SessionInfo, error) {

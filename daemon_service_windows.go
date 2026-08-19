@@ -2,13 +2,18 @@
 
 package terminal
 
-import "errors"
+import (
+	"encoding/json"
+	"errors"
+)
 
 type DaemonOptions struct {
-	Home         string
-	SourceBinary string
-	LoginShell   string
-	Environment  []string
+	Home                string
+	SourceBinary        string
+	LoginShell          string
+	Environment         []string
+	RestoreUnit         string
+	RestoreSourceBinary string
 }
 
 type DaemonService struct{}
@@ -32,6 +37,9 @@ func (*DaemonService) PaneAlive(string) (bool, error) {
 	return false, errors.New("PTY daemon unavailable")
 }
 func (*DaemonService) DaemonStatus() (any, error) { return nil, errors.New("PTY daemon unavailable") }
+func (*DaemonService) SidecarRequest(json.RawMessage) (any, error) {
+	return nil, errors.New("PTY daemon unavailable")
+}
 func (*DaemonService) TraceInput(Handle, InputTrace) error {
 	return errors.New("PTY daemon unavailable")
 }

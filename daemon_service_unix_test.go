@@ -4,6 +4,7 @@ package terminal
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"strings"
 	"sync"
@@ -115,5 +116,54 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 	}
 	if after[0].PID != before[0].PID {
 		t.Fatalf("shell pid changed across reattach: before=%d after=%d", before[0].PID, after[0].PID)
+	}
+}
+
+func TestDaemonServiceStartsAndRelaysTheRestoreSidecar(t *testing.T) {
+	daemonBinary := os.Getenv("SOKSAK_PTYD_BIN")
+	sidecarBinary := os.Getenv("SOKSAK_TERMINAL_SIDECAR_BIN")
+	if daemonBinary == "" || sidecarBinary == "" {
+		t.Skip("SOKSAK_PTYD_BIN and SOKSAK_TERMINAL_SIDECAR_BIN are required")
+	}
+	home, err := os.MkdirTemp("/tmp", "sokpty-sidecar-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
+	service, err := NewDaemonService(nil, DaemonOptions{
+		Home: home, SourceBinary: daemonBinary, LoginShell: "/bin/zsh",
+		Environment: os.Environ(), RestoreSourceBinary: sidecarBinary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := service.Open("win-test/tab-sidecar", "", 80, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = service.Kill(handle)
+		_ = service.request(terminalcontract.OperationRequest{Op: "shutdown"}, false, nil)
+		_ = service.ServiceShutdown()
+	})
+	request, _ := json.Marshal(map[string]any{
+		"op": "ensureSession", "window": "win-test", "pane": "tab-sidecar", "cols": 80, "rows": 24,
+	})
+	reply, err := service.SidecarRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.(map[string]any)["ok"] != true {
+		t.Fatalf("ensureSession = %#v", reply)
+	}
+	request, _ = json.Marshal(map[string]any{"op": "status"})
+	reply, err = service.SidecarRequest(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := reply.(map[string]any)["data"].(map[string]any)
+	sessions, ok := data["sessions"].([]any)
+	if !ok || len(sessions) != 1 {
+		t.Fatalf("sidecar status = %#v", reply)
 	}
 }
