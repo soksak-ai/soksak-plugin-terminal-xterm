@@ -67,6 +67,34 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("a mounted terminal", () => {
+  it("focuses the canonical textarea and releases it before transfer", () => {
+    const host = mountedHost();
+    const screen = mountTerminal(host, "pan-focus", binding());
+    const input = host.querySelector<HTMLTextAreaElement>('[data-node="input"]')!;
+
+    expect(screen.focus()).toBe(true);
+    expect(document.activeElement).toBe(input);
+    screen.prepareFocusTransfer();
+    expect(document.activeElement).not.toBe(input);
+    screen.stop();
+  });
+
+  it("flushes non-standard WebKit preedit before focus leaves", async () => {
+    const write = vi.fn(async () => {});
+    const host = mountedHost();
+    const screen = mountTerminal(host, "pan-compose", binding({ write }));
+    await nextFrame();
+    const input = host.querySelector<HTMLTextAreaElement>('[data-node="input"]')!;
+    input.dispatchEvent(new InputEvent("input", {
+      data: "\ud55c", inputType: "insertReplacementText", bubbles: true,
+    }));
+
+    screen.prepareFocusTransfer();
+    await Promise.resolve();
+    expect(write).toHaveBeenCalledWith(SESSION, "\ud55c");
+    screen.stop();
+  });
+
   it("exposes its screen and IME input as plugin-owned DOM addresses", () => {
     const host = mountedHost();
     const screen = mountTerminal(host, "pan-input", binding());

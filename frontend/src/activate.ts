@@ -15,6 +15,8 @@ export interface TerminalHost {
     registerView(viewId: string, provider: {
       mount(container: HTMLElement, ctx: unknown): void;
       unmount?(container: HTMLElement): void;
+      prepareFocusTransfer?(container: HTMLElement, ctx: unknown): void;
+      focus?(container: HTMLElement, ctx: unknown, request: { signal: AbortSignal }): void;
     }): { dispose(): void };
     /** One reading or control in the status bar of the group showing a view. The
      *  host places it and reads nothing into it. */
@@ -103,6 +105,12 @@ export function activate(ctx: ActivateContext): void {
     }
   >();
   const binding = ptyBinding(app);
+  const screenOf = (container: HTMLElement): TerminalScreen | null => {
+    for (const mounted of screens.values()) {
+      if (mounted.container === container) return mounted.screen;
+    }
+    return null;
+  };
 
   /** This screen's working directory, and what kind of screen it is, in the status bar.
    *
@@ -161,6 +169,13 @@ export function activate(ctx: ActivateContext): void {
       if (!found || found.container !== container) return;
       found.screen.stop();
       screens.delete(key);
+    },
+    prepareFocusTransfer(container) {
+      screenOf(container)?.prepareFocusTransfer();
+    },
+    focus(container, _viewContext, request) {
+      if (request.signal.aborted) return;
+      screenOf(container)?.focus();
     },
   });
   ctx.subscriptions.push(view);

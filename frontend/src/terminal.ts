@@ -46,6 +46,10 @@ export interface TerminalScreen {
   stop: () => void;
   read: (lines?: number) => string;
   send: (data: string) => void;
+  /** Focus the one xterm textarea that owns keyboard input and report actual landing. */
+  focus: () => boolean;
+  /** Commit transient IME state and release the source responder before another view focuses. */
+  prepareFocusTransfer: () => void;
 }
 
 export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBinding): TerminalScreen {
@@ -171,6 +175,16 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     stop,
     read: (lines) => readScreen(terminal, lines),
     send: (data) => { void write(data); },
+    focus: () => {
+      terminal.focus();
+      return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea;
+    },
+    prepareFocusTransfer: () => {
+      // The addon owns non-standard WebKit preedit; xterm owns the standard composition path.
+      // Flush the former first, then blur the canonical textarea so WebKit commits the latter.
+      ime.flushPending();
+      terminal.textarea?.blur();
+    },
   };
 }
 

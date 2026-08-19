@@ -6854,6 +6854,14 @@ function mountTerminal(host, id, binding) {
     read: (lines) => readScreen(terminal, lines),
     send: (data) => {
       void write(data);
+    },
+    focus: () => {
+      terminal.focus();
+      return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea;
+    },
+    prepareFocusTransfer: () => {
+      ime.flushPending();
+      terminal.textarea?.blur();
     }
   };
 }
@@ -7061,6 +7069,12 @@ function activate(ctx) {
   const app = ctx.app;
   const screens = /* @__PURE__ */ new Map();
   const binding = ptyBinding(app);
+  const screenOf = (container) => {
+    for (const mounted of screens.values()) {
+      if (mounted.container === container) return mounted.screen;
+    }
+    return null;
+  };
   const showCwd = (key) => {
     const place = (cwd) => {
       const item = app.ui.statusBarItem?.({
@@ -7102,6 +7116,13 @@ function activate(ctx) {
       if (!found || found.container !== container) return;
       found.screen.stop();
       screens.delete(key);
+    },
+    prepareFocusTransfer(container) {
+      screenOf(container)?.prepareFocusTransfer();
+    },
+    focus(container, _viewContext, request) {
+      if (request.signal.aborted) return;
+      screenOf(container)?.focus();
     }
   });
   ctx.subscriptions.push(view);
