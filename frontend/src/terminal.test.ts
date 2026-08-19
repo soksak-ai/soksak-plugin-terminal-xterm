@@ -67,6 +67,14 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("a mounted terminal", () => {
+  it("exposes its screen and IME input as plugin-owned DOM addresses", () => {
+    const host = mountedHost();
+    const screen = mountTerminal(host, "pan-input", binding());
+    expect(host.querySelector<HTMLElement>('[data-node="screen"]')).not.toBeNull();
+    expect(host.querySelector<HTMLElement>('[data-node="input"]')?.tagName).toBe("TEXTAREA");
+    screen.stop();
+  });
+
   it("coalesces a resize burst to one fit per display frame", async () => {
     const resize = vi.fn(async () => {});
     const screen = mountTerminal(mountedHost(), "pan-resize", binding({ resize }));

@@ -68,6 +68,11 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
   const fit = new FitAddon();
   terminal.loadAddon(fit);
   terminal.open(host);
+  // The plugin owns these nodes, so it also owns their public names. Without the textarea address
+  // an IME incident can be observed only by reaching into xterm's private class names, and neither
+  // composition events nor focus can be reproduced through the command surface.
+  if (terminal.element) terminal.element.dataset.node = "screen";
+  if (terminal.textarea) terminal.textarea.dataset.node = "input";
   host.dataset.terminalIme = "webkit";
   let handle: TerminalHandle | null = null;
   let output: { dispose(): void } | null = null;

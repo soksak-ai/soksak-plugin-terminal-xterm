@@ -6760,6 +6760,8 @@ function mountTerminal(host, id, binding) {
   const fit = new import_addon_fit.FitAddon();
   terminal.loadAddon(fit);
   terminal.open(host);
+  if (terminal.element) terminal.element.dataset.node = "screen";
+  if (terminal.textarea) terminal.textarea.dataset.node = "input";
   host.dataset.terminalIme = "webkit";
   let handle = null;
   let output = null;
