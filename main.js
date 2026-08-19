@@ -6793,12 +6793,20 @@ function mountTerminal(host, id, binding) {
     onDebug: (message) => record({ kind: "addon-debug", message })
   });
   terminal.loadAddon(ime);
-  const resize = () => {
+  const resizeNow = () => {
     if (!host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
     fit.fit();
     if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
   };
-  const observer = new ResizeObserver(resize);
+  let resizeFrame = null;
+  const scheduleResize = () => {
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      resizeNow();
+    });
+  };
+  const observer = new ResizeObserver(scheduleResize);
   observer.observe(host);
   const input = terminal.onData((data) => {
     record({ kind: "xterm-data", data });
@@ -6806,7 +6814,7 @@ function mountTerminal(host, id, binding) {
   });
   requestAnimationFrame(() => {
     if (disposed || !host.isConnected) return;
-    resize();
+    resizeNow();
     void binding.open(id, terminal.cols || 80, terminal.rows || 24).then((opened) => {
       if (disposed) {
         void binding.close(opened);
@@ -6821,13 +6829,14 @@ function mountTerminal(host, id, binding) {
         }
       });
       for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
-      resize();
+      resizeNow();
     });
   });
   const stop = () => {
     if (disposed) return;
     disposed = true;
     observer.disconnect();
+    if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     stopTheme();
     output?.dispose();
     io?.dispose();

@@ -26,7 +26,9 @@ vi.stubGlobal("matchMedia", (query: string) => ({
 
 // jsdom has no ResizeObserver either. The view observes its host to refit
 // on layout changes; nothing in these assertions depends on a resize firing.
+let resizeCallback: ResizeObserverCallback | null = null;
 vi.stubGlobal("ResizeObserver", class {
+  constructor(callback: ResizeObserverCallback) { resizeCallback = callback; }
   observe() {}
   unobserve() {}
   disconnect() {}
@@ -65,6 +67,21 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("a mounted terminal", () => {
+  it("coalesces a resize burst to one fit per display frame", async () => {
+    const resize = vi.fn(async () => {});
+    const screen = mountTerminal(mountedHost(), "pan-resize", binding({ resize }));
+    await nextFrame();
+    const before = resize.mock.calls.length;
+
+    for (let index = 0; index < 10; index += 1) {
+      resizeCallback?.([], {} as ResizeObserver);
+    }
+    expect(resize.mock.calls.length).toBe(before);
+    await nextFrame();
+    expect(resize.mock.calls.length).toBe(before + 1);
+    screen.stop();
+  });
+
   it("opens a session for the pane it was mounted for", async () => {
     const open = vi.fn(async () => SESSION);
     const screen = mountTerminal(mountedHost(), "pan-aaaaaa", binding({ open }));
