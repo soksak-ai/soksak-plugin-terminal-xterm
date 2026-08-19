@@ -55,6 +55,8 @@ function binding(overrides: Partial<TerminalBinding> = {}): TerminalBinding {
     onData: vi.fn(() => ({ dispose: () => undefined })),
     registerIo: vi.fn(() => ({ dispose: () => undefined })),
     traceInput: vi.fn(async () => {}),
+    paneAlive: vi.fn(async () => false),
+    sidecarRequest: vi.fn(async () => ({ ok: true, data: {} })),
     ...overrides,
   };
 }
@@ -69,8 +71,11 @@ async function nextFrame(): Promise<void> {
 describe("a mounted terminal", () => {
   it("paints a live sidecar snapshot before resuming at its exact sequence", async () => {
     const order: string[] = [];
+    let reportOpen!: () => void;
+    const opened = new Promise<void>((resolve) => { reportOpen = resolve; });
     const open = vi.fn(async (...args: unknown[]) => {
       order.push(`open:${JSON.stringify(args[3])}`);
+      reportOpen();
       return SESSION;
     });
     const warm = binding({ open }) as TerminalBinding & {
@@ -90,8 +95,7 @@ describe("a mounted terminal", () => {
     });
 
     const screen = mountTerminal(mountedHost(), "pan-warm", warm);
-    await nextFrame();
-    await Promise.resolve();
+    await opened;
 
     expect(order).toEqual(["resize", "rehydrate", 'open:{"fromSeq":37}']);
     expect(screen.read()).toContain("__warm_screen__");
@@ -124,11 +128,15 @@ describe("a mounted terminal", () => {
   });
 
   it("opens from the mount event even when animation frames are suspended", async () => {
-    const open = vi.fn(async () => SESSION);
+    let reportOpen!: () => void;
+    const opened = new Promise<void>((resolve) => { reportOpen = resolve; });
+    const open = vi.fn(async () => {
+      reportOpen();
+      return SESSION;
+    });
     const screen = mountTerminal(mountedHost(), "pan-background", binding({ open }));
 
-    await Promise.resolve();
-    await Promise.resolve();
+    await opened;
 
     expect(open).toHaveBeenCalledTimes(1);
     screen.stop();

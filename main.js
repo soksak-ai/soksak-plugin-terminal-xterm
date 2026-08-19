@@ -6796,7 +6796,7 @@ function nearestRank(sorted, quantile) {
 }
 
 // src/terminal.ts
-function mountTerminal(host, id, binding) {
+function mountTerminal(host, id, binding, reportStatus = () => void 0) {
   injectStyles();
   const themeRoot = host.ownerDocument.documentElement;
   const terminal = new import_xterm2.Terminal({
@@ -6853,11 +6853,56 @@ function mountTerminal(host, id, binding) {
     fit.fit();
     if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
   };
+  const setRestoreStatus = (state, message) => {
+    host.dataset.terminalRestore = state;
+    if (message) host.dataset.terminalRestoreError = message;
+    else delete host.dataset.terminalRestoreError;
+    reportStatus(state === "error" || state === "degraded" ? { code: `terminal.restore.${state}`, message } : null);
+  };
+  const requireSidecarReply = (reply, operation) => {
+    if (reply.ok !== true) {
+      const code = typeof reply.code === "string" ? reply.code : "FAILED";
+      const message = typeof reply.message === "string" ? reply.message : "no error message";
+      throw new Error(`${operation} failed (${code}): ${message}`);
+    }
+    const data = reply.data;
+    return data && typeof data === "object" ? data : {};
+  };
+  const paintSnapshot = async (paint) => {
+    const decoded = atob(paint);
+    const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+    await new Promise((resolve) => terminal.write(bytes, resolve));
+  };
+  const restore = async () => {
+    setRestoreStatus("checking");
+    if (!await binding.paneAlive(id)) return "none";
+    requireSidecarReply(await binding.sidecarRequest({
+      op: "resize",
+      pane: id,
+      cols: terminal.cols || 80,
+      rows: terminal.rows || 24
+    }), "resize");
+    const restored = requireSidecarReply(
+      await binding.sidecarRequest({ op: "rehydrate", pane: id }),
+      "rehydrate"
+    );
+    if (typeof restored.paint !== "string" || typeof restored.uptoSeq !== "number" || !Number.isSafeInteger(restored.uptoSeq) || restored.uptoSeq < 0) {
+      throw new Error("rehydrate returned an invalid paint or uptoSeq");
+    }
+    await paintSnapshot(restored.paint);
+    setRestoreStatus("warm");
+    return { fromSeq: restored.uptoSeq };
+  };
   const openWhenSized = () => {
     if (disposed || opening || handle !== null || !host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
     resizeNow();
     opening = true;
-    void binding.open(id, terminal.cols || 80, terminal.rows || 24).then(
+    void restore().then((replay) => binding.open(
+      id,
+      terminal.cols || 80,
+      terminal.rows || 24,
+      replay
+    )).then(
       (opened) => {
         opening = false;
         if (disposed) {
@@ -6874,9 +6919,24 @@ function mountTerminal(host, id, binding) {
         });
         for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
         resizeNow();
+        if (host.dataset.terminalRestore === "checking") {
+          void binding.sidecarRequest({
+            op: "ensureSession",
+            pane: id,
+            cols: terminal.cols || 80,
+            rows: terminal.rows || 24
+          }).then(
+            (reply) => {
+              requireSidecarReply(reply, "ensureSession");
+              setRestoreStatus("fresh");
+            },
+            (error) => setRestoreStatus("degraded", String(error))
+          );
+        }
       },
-      () => {
+      (error) => {
         opening = false;
+        setRestoreStatus("error", String(error));
       }
     );
   };
@@ -6910,6 +6970,8 @@ function mountTerminal(host, id, binding) {
     if (handle) void binding.close(handle);
     terminal.dispose();
     delete host.dataset.terminalIme;
+    delete host.dataset.terminalRestore;
+    delete host.dataset.terminalRestoreError;
   };
   return {
     stop,
@@ -7226,11 +7288,12 @@ function activate(ctx) {
       const key = sessionKeyOf(viewContext);
       container.dataset.terminalView = key;
       const status = viewContext?.setStatus;
+      const setStatus = typeof status === "function" ? status : () => {
+      };
       screens.set(key, {
-        screen: mountTerminal(container, key, binding),
+        screen: mountTerminal(container, key, binding, setStatus),
         container,
-        setStatus: typeof status === "function" ? status : () => {
-        }
+        setStatus
       });
       showCwd(key);
     },
@@ -7412,8 +7475,8 @@ function sessionKeyOf(viewContext) {
 }
 function ptyBinding(app) {
   return {
-    async open(paneId, cols, rows) {
-      const id = await app.pty.spawn({ cols, rows, paneId });
+    async open(paneId, cols, rows, replay) {
+      const id = await app.pty.spawn({ cols, rows, paneId, replay });
       currentSessionId = id;
       return id;
     },
@@ -7422,6 +7485,8 @@ function ptyBinding(app) {
     close: (id) => app.pty.close(id),
     onData: (id, callback) => app.pty.onData(id, callback),
     registerIo: (paneId, io) => app.pty.registerIo(paneId, io),
+    paneAlive: (paneId) => app.pty.paneAlive(paneId),
+    sidecarRequest: (request) => app.pty.sidecarRequest(request),
     async traceInput() {
     }
   };

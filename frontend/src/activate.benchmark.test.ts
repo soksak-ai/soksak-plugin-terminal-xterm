@@ -46,6 +46,8 @@ describe("renderer benchmark command", () => {
         close: async () => {},
         onData: () => ({ dispose() {} }),
         registerIo: () => ({ dispose() {} }),
+        paneAlive: async () => false,
+        sidecarRequest: async () => ({ ok: true, data: {} }),
       },
     };
     activate({ app: host, subscriptions: [] });

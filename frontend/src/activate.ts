@@ -64,7 +64,12 @@ export interface TerminalHost {
    *  boundaries, buffer reads — and a plugin that goes around it turns those
    *  off with nothing reporting that it did. */
   pty: {
-    spawn(options: { cols: number; rows: number; paneId?: string }): Promise<number>;
+    spawn(options: {
+      cols: number;
+      rows: number;
+      paneId?: string;
+      replay?: "none" | { fromSeq: number };
+    }): Promise<number>;
     write(id: number, data: string): Promise<void>;
     resize(id: number, cols: number, rows: number): Promise<void>;
     close(id: number): Promise<void>;
@@ -73,6 +78,8 @@ export interface TerminalHost {
       paneId: string,
       io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
     ): { dispose(): void };
+    paneAlive(paneId: string): Promise<boolean>;
+    sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
   };
 }
 
@@ -147,12 +154,13 @@ export function activate(ctx: ActivateContext): void {
       const key = sessionKeyOf(viewContext);
       container.dataset.terminalView = key;
       const status = (viewContext as { setStatus?: unknown } | null)?.setStatus;
+      const setStatus = typeof status === "function"
+        ? (status as (s: { code: string; message?: string } | null) => void)
+        : () => {};
       screens.set(key, {
-        screen: mountTerminal(container, key, binding),
+        screen: mountTerminal(container, key, binding, setStatus),
         container,
-        setStatus: typeof status === "function"
-          ? (status as (s: { code: string; message?: string } | null) => void)
-          : () => {},
+        setStatus,
       });
       showCwd(key);
     },
@@ -395,10 +403,10 @@ function sessionKeyOf(viewContext: unknown): string {
 
 function ptyBinding(app: TerminalHost): TerminalBinding {
   return {
-    async open(paneId, cols, rows) {
+    async open(paneId, cols, rows, replay) {
       // The pane id goes with the session. It is what the host attaches its
       // observation to, and what a reattach after a reload finds it by.
-      const id = await app.pty.spawn({ cols, rows, paneId });
+      const id = await app.pty.spawn({ cols, rows, paneId, replay });
       currentSessionId = id;
       return id;
     },
@@ -407,6 +415,8 @@ function ptyBinding(app: TerminalHost): TerminalBinding {
     close: (id) => app.pty.close(id),
     onData: (id, callback) => app.pty.onData(id, callback),
     registerIo: (paneId, io) => app.pty.registerIo(paneId, io),
+    paneAlive: (paneId) => app.pty.paneAlive(paneId),
+    sidecarRequest: (request) => app.pty.sidecarRequest(request),
     async traceInput() {
       // The host records input traces when it is asked to. Nothing here reads
       // the answer, and a failed trace must not fail a keystroke.

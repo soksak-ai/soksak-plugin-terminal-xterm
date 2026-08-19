@@ -24,6 +24,8 @@ describe("terminal view focus boundary", () => {
         spawn: async () => 1,
         write: async () => {}, resize: async () => {}, close: async () => {},
         onData: () => ({ dispose() {} }), registerIo: () => ({ dispose() {} }),
+        paneAlive: async () => false,
+        sidecarRequest: async () => ({ ok: true, data: {} }),
       },
     };
     activate({ app: host, subscriptions: [] });

@@ -24,7 +24,12 @@ export type TerminalHandle = number;
  *  channel, and everything the capability observes on the way — the working
  *  directory, command boundaries, buffer reads — would stop happening. */
 export type TerminalBinding = {
-  open(paneId: string, cols: number, rows: number): Promise<TerminalHandle>;
+  open(
+    paneId: string,
+    cols: number,
+    rows: number,
+    replay: "none" | { fromSeq: number },
+  ): Promise<TerminalHandle>;
   write(handle: TerminalHandle, data: string): Promise<void>;
   resize(handle: TerminalHandle, cols: number, rows: number): Promise<void>;
   close(handle: TerminalHandle): Promise<void>;
@@ -40,7 +45,11 @@ export type TerminalBinding = {
     io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
   ): { dispose(): void };
   traceInput(handle: TerminalHandle, event: TerminalInputTrace): Promise<void>;
+  paneAlive(paneId: string): Promise<boolean>;
+  sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
 };
+
+export type TerminalMountStatus = { code: string; message?: string } | null;
 
 /** One mounted screen, and what an outside caller can do to it.
  *
@@ -74,7 +83,12 @@ export interface RendererBenchmarkReport extends RendererSampleSummary {
   rows: number;
 }
 
-export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBinding): TerminalScreen {
+export function mountTerminal(
+  host: HTMLElement,
+  id: string,
+  binding: TerminalBinding,
+  reportStatus: (status: TerminalMountStatus) => void = () => undefined,
+): TerminalScreen {
   // Once per document, before xterm builds its DOM. Without these rules the
   // screen renders as unstyled spans.
   injectStyles();
@@ -142,6 +156,50 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     fit.fit();
     if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
   };
+  const setRestoreStatus = (state: string, message?: string): void => {
+    host.dataset.terminalRestore = state;
+    if (message) host.dataset.terminalRestoreError = message;
+    else delete host.dataset.terminalRestoreError;
+    reportStatus(state === "error" || state === "degraded"
+      ? { code: `terminal.restore.${state}`, message }
+      : null);
+  };
+  const requireSidecarReply = (
+    reply: Record<string, unknown>,
+    operation: string,
+  ): Record<string, unknown> => {
+    if (reply.ok !== true) {
+      const code = typeof reply.code === "string" ? reply.code : "FAILED";
+      const message = typeof reply.message === "string" ? reply.message : "no error message";
+      throw new Error(`${operation} failed (${code}): ${message}`);
+    }
+    const data = reply.data;
+    return data && typeof data === "object" ? data as Record<string, unknown> : {};
+  };
+  const paintSnapshot = async (paint: string): Promise<void> => {
+    const decoded = atob(paint);
+    const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+    await new Promise<void>((resolve) => terminal.write(bytes, resolve));
+  };
+  const restore = async (): Promise<"none" | { fromSeq: number }> => {
+    setRestoreStatus("checking");
+    if (!await binding.paneAlive(id)) return "none";
+    requireSidecarReply(await binding.sidecarRequest({
+      op: "resize", pane: id, cols: terminal.cols || 80, rows: terminal.rows || 24,
+    }), "resize");
+    const restored = requireSidecarReply(
+      await binding.sidecarRequest({ op: "rehydrate", pane: id }),
+      "rehydrate",
+    );
+    if (typeof restored.paint !== "string" ||
+        typeof restored.uptoSeq !== "number" ||
+        !Number.isSafeInteger(restored.uptoSeq) || restored.uptoSeq < 0) {
+      throw new Error("rehydrate returned an invalid paint or uptoSeq");
+    }
+    await paintSnapshot(restored.paint);
+    setRestoreStatus("warm");
+    return { fromSeq: restored.uptoSeq };
+  };
   const openWhenSized = () => {
     if (
       disposed || opening || handle !== null || !host.isConnected ||
@@ -149,7 +207,9 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     ) return;
     resizeNow();
     opening = true;
-    void binding.open(id, terminal.cols || 80, terminal.rows || 24).then(
+    void restore().then((replay) => binding.open(
+      id, terminal.cols || 80, terminal.rows || 24, replay,
+    )).then(
       (opened) => {
         opening = false;
         if (disposed) {
@@ -164,9 +224,21 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
         });
         for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
         resizeNow();
+        if (host.dataset.terminalRestore === "checking") {
+          void binding.sidecarRequest({
+            op: "ensureSession", pane: id, cols: terminal.cols || 80, rows: terminal.rows || 24,
+          }).then(
+            (reply) => {
+              requireSidecarReply(reply, "ensureSession");
+              setRestoreStatus("fresh");
+            },
+            (error: unknown) => setRestoreStatus("degraded", String(error)),
+          );
+        }
       },
-      () => {
+      (error: unknown) => {
         opening = false;
+        setRestoreStatus("error", String(error));
       },
     );
   };
@@ -201,6 +273,8 @@ export function mountTerminal(host: HTMLElement, id: string, binding: TerminalBi
     if (handle) void binding.close(handle);
     terminal.dispose();
     delete host.dataset.terminalIme;
+    delete host.dataset.terminalRestore;
+    delete host.dataset.terminalRestoreError;
   };
 
   return {
