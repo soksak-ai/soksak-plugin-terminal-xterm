@@ -175,6 +175,16 @@ func (f foregroundOwner) ForegroundGroup(handle Handle) (int, error) {
 	return f.pgid, f.pgidErr
 }
 
+type daemonOwner struct {
+	*fakeOwner
+	alive bool
+}
+
+func (owner daemonOwner) PaneAlive(string) (bool, error) { return owner.alive, nil }
+func (owner daemonOwner) DaemonStatus() (any, error) {
+	return map[string]any{"pid": 77, "sessions": 1}, nil
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 func registered(t *testing.T, owner Sessions) *control.Registry {
@@ -604,6 +614,26 @@ func TestPaneAliveFollowsTheSessionsLife(t *testing.T) {
 
 	if _, err := registry.Invoke("pty_pane_alive", control.Args{"paneId": raw(`""`)}); err == nil {
 		t.Fatal("an empty pane id names nothing and must be refused")
+	}
+}
+
+func TestPaneAliveUsesDaemonInventoryBeforeThisProcessAttaches(t *testing.T) {
+	registry := registered(t, daemonOwner{fakeOwner: newFakeOwner(), alive: true})
+	answer, err := registry.Invoke("pty_pane_alive", control.Args{"paneId": raw(`"v2"`)})
+	if err != nil || answer != true {
+		t.Fatalf("pty_pane_alive = %v, %v, want daemon inventory true", answer, err)
+	}
+}
+
+func TestDaemonStatusIsServedByADaemonOwner(t *testing.T) {
+	registry := registered(t, daemonOwner{fakeOwner: newFakeOwner(), alive: true})
+	answer, err := registry.Invoke("pty_daemon_status", control.Args{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := answer.(map[string]any)
+	if status["pid"] != 77 || status["sessions"] != 1 {
+		t.Fatalf("pty_daemon_status = %#v", status)
 	}
 }
 
