@@ -187,6 +187,61 @@ func (service *DaemonService) Ack(handle Handle, bytes uint64) error {
 	}, false, nil)
 }
 
+func (service *DaemonService) PaneAlive(paneID string) (bool, error) {
+	sessions, err := service.daemonSessions()
+	if err != nil {
+		return false, err
+	}
+	for _, session := range sessions {
+		if session.PaneID == paneID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (service *DaemonService) DaemonStatus() (any, error) {
+	var ping struct {
+		PID             int `json:"pid"`
+		Sessions        int `json:"sessions"`
+		HandoffContract int `json:"handoffContract"`
+	}
+	if err := service.request(terminalcontract.OperationRequest{Op: "ping"}, false, &ping); err != nil {
+		return nil, err
+	}
+	sessions, err := service.daemonSessions()
+	if err != nil {
+		return nil, err
+	}
+	owners := make([]map[string]any, 0, len(sessions))
+	for _, session := range sessions {
+		owners = append(owners, map[string]any{
+			"owner": "pty-supervisor", "session": session.Session,
+			"windowLabel": session.WindowLabel, "paneId": session.PaneID,
+			"shellPid": session.ShellPID, "generation": session.Generation,
+		})
+	}
+	return map[string]any{
+		"running": true, "pid": ping.PID, "sessions": ping.Sessions,
+		"sessionOwners": owners, "ownershipComplete": len(owners) == ping.Sessions,
+		"protocol":                terminalcontract.ProtocolVersion,
+		"handoffContract":         ping.HandoffContract,
+		"handoffContractRequired": terminalcontract.HandoffContract,
+		"staged":                  true,
+		"stagedPath":              terminalcontract.DaemonBinaryPath(service.options.Home),
+	}, nil
+}
+
+func (service *DaemonService) daemonSessions() ([]terminalcontract.SessionInfo, error) {
+	var result struct {
+		Sessions []terminalcontract.SessionInfo `json:"sessions"`
+	}
+	if err := service.request(terminalcontract.OperationRequest{Op: "listSessions"}, false, &result); err != nil {
+		return nil, err
+	}
+	return result.Sessions, nil
+}
+
 func (service *DaemonService) Close(handle Handle) error { return service.Kill(handle) }
 
 func (service *DaemonService) Kill(handle Handle) error {

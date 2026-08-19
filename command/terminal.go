@@ -19,9 +19,9 @@
 package command
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
-	"fmt"
 
 	"github.com/soksak/soksak-core/core/control"
 	"github.com/soksak/soksak-core/core/i18n"
@@ -78,6 +78,11 @@ type Flow interface {
 // answer about a different process.
 type Foreground interface {
 	ForegroundGroup(handle Handle) (int, error)
+}
+
+type Daemon interface {
+	PaneAlive(paneID string) (bool, error)
+	DaemonStatus() (any, error)
 }
 
 // Deps is what the process supplies. Nothing here is read from the environment:
@@ -170,6 +175,7 @@ func Register(registry *control.Registry, deps Deps) {
 	placement, _ := deps.Sessions.(Placement)
 	flow, _ := deps.Sessions.(Flow)
 	foreground, _ := deps.Sessions.(Foreground)
+	daemon, _ := deps.Sessions.(Daemon)
 
 	declare := func(name, reason string) {
 		if err := registry.DeclareUnserved(name, reason); err != nil {
@@ -414,6 +420,9 @@ func Register(registry *control.Registry, deps Deps) {
 		// injected contract's half, not this table's.
 		//
 		// Absence is false — an ordinary answer, not a failure.
+		if daemon != nil {
+			return daemon.PaneAlive(paneID)
+		}
 		_, alive := sessions.pane(paneID)
 		return alive, nil
 	})
@@ -447,7 +456,13 @@ func Register(registry *control.Registry, deps Deps) {
 	// downed component instead of a missing one, and the caller acts on that.
 	declare("pty_read_sealed_screen", sealedScreenUnserved)
 	declare("pty_sidecar_request", sidecarUnserved)
-	declare("pty_daemon_status", daemonStatusUnserved)
+	if daemon == nil {
+		declare("pty_daemon_status", daemonStatusUnserved)
+	} else {
+		serve("pty_daemon_status", func(control.Args) (any, error) {
+			return daemon.DaemonStatus()
+		})
+	}
 	declare("pty_daemon_restart", daemonRestartUnserved)
 	declare("pty_daemon_upgrade", daemonUpgradeUnserved)
 }

@@ -13,10 +13,39 @@ import "github.com/soksak/soksak-plugin-terminal-xterm/command"
 // implements ServiceName and ServiceShutdown, which are plain method sets, but
 // ServiceStartup takes a framework type and a plugin does not name a framework.
 func CommandSessions(service Owner) command.Sessions {
-	return commandSessions{service: service}
+	base := commandSessions{service: service}
+	if daemon, ok := service.(interface {
+		Ack(Handle, uint64) error
+		PaneAlive(string) (bool, error)
+		DaemonStatus() (any, error)
+	}); ok {
+		return daemonCommandSessions{commandSessions: base, daemon: daemon}
+	}
+	return base
 }
 
 type commandSessions struct{ service Owner }
+
+type daemonCommandSessions struct {
+	commandSessions
+	daemon interface {
+		Ack(Handle, uint64) error
+		PaneAlive(string) (bool, error)
+		DaemonStatus() (any, error)
+	}
+}
+
+func (sessions daemonCommandSessions) Ack(handle command.Handle, bytes uint64) error {
+	return sessions.daemon.Ack(ownerHandle(handle), bytes)
+}
+
+func (sessions daemonCommandSessions) PaneAlive(paneID string) (bool, error) {
+	return sessions.daemon.PaneAlive(paneID)
+}
+
+func (sessions daemonCommandSessions) DaemonStatus() (any, error) {
+	return sessions.daemon.DaemonStatus()
+}
 
 func (sessions commandSessions) Open(key string, stream string, cols, rows uint16) (command.Handle, error) {
 	handle, err := sessions.service.Open(key, stream, cols, rows)
