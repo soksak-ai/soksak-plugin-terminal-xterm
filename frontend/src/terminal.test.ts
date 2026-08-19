@@ -67,6 +67,62 @@ async function nextFrame(): Promise<void> {
 }
 
 describe("a mounted terminal", () => {
+  it("paints a live sidecar snapshot before resuming at its exact sequence", async () => {
+    const order: string[] = [];
+    const open = vi.fn(async (...args: unknown[]) => {
+      order.push(`open:${JSON.stringify(args[3])}`);
+      return SESSION;
+    });
+    const warm = binding({ open }) as TerminalBinding & {
+      paneAlive(paneId: string): Promise<boolean>;
+      sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+    };
+    warm.paneAlive = vi.fn(async () => true);
+    warm.sidecarRequest = vi.fn(async (request) => {
+      order.push(String(request.op));
+      if (request.op === "rehydrate") {
+        return {
+          ok: true,
+          data: { paint: btoa("__warm_screen__"), uptoSeq: 37, altActive: false },
+        };
+      }
+      return { ok: true, data: {} };
+    });
+
+    const screen = mountTerminal(mountedHost(), "pan-warm", warm);
+    await nextFrame();
+    await Promise.resolve();
+
+    expect(order).toEqual(["resize", "rehydrate", 'open:{"fromSeq":37}']);
+    expect(screen.read()).toContain("__warm_screen__");
+    screen.stop();
+  });
+
+  it("opens a fresh pane before registering it with the restore sidecar", async () => {
+    const order: string[] = [];
+    const fresh = binding({
+      open: vi.fn(async () => {
+        order.push("open");
+        return SESSION;
+      }),
+    }) as TerminalBinding & {
+      paneAlive(paneId: string): Promise<boolean>;
+      sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+    };
+    fresh.paneAlive = vi.fn(async () => false);
+    fresh.sidecarRequest = vi.fn(async (request) => {
+      order.push(String(request.op));
+      return { ok: true, data: {} };
+    });
+
+    const screen = mountTerminal(mountedHost(), "pan-fresh", fresh);
+    await nextFrame();
+    await Promise.resolve();
+
+    expect(order).toEqual(["open", "ensureSession"]);
+    screen.stop();
+  });
+
   it("opens from the mount event even when animation frames are suspended", async () => {
     const open = vi.fn(async () => SESSION);
     const screen = mountTerminal(mountedHost(), "pan-background", binding({ open }));
