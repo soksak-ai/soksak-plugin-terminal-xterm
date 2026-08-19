@@ -83,7 +83,7 @@ func NewDaemonService(sink OutputSink, options DaemonOptions) (*DaemonService, e
 
 func (service *DaemonService) ServiceName() string { return "soksak-pty-daemon" }
 
-func (service *DaemonService) Open(key, stream string, cols, rows uint16) (Handle, error) {
+func (service *DaemonService) Open(key, stream string, cols, rows uint16, fromSeq *uint64) (Handle, error) {
 	window, pane, found := strings.Cut(key, "/")
 	if !found || window == "" || pane == "" || strings.Contains(pane, "/") {
 		return Handle{}, fmt.Errorf("terminal daemon key must be window/pane: %q", key)
@@ -104,7 +104,7 @@ func (service *DaemonService) Open(key, stream string, cols, rows uint16) (Handl
 	if err := service.request(request, true, &info); err != nil {
 		return Handle{}, err
 	}
-	connection, reader, err := service.attach(info.Session)
+	connection, reader, err := service.attach(info.Session, fromSeq)
 	if err != nil {
 		return Handle{}, err
 	}
@@ -124,7 +124,7 @@ func (service *DaemonService) Open(key, stream string, cols, rows uint16) (Handl
 	return Handle{ID: key, Generation: info.Generation}, nil
 }
 
-func (service *DaemonService) attach(session uint64) (net.Conn, *bufio.Reader, error) {
+func (service *DaemonService) attach(session uint64, fromSeq *uint64) (net.Conn, *bufio.Reader, error) {
 	token, err := service.token()
 	if err != nil {
 		return nil, nil, err
@@ -135,6 +135,7 @@ func (service *DaemonService) attach(session uint64) (net.Conn, *bufio.Reader, e
 	}
 	hello := terminalcontract.NewHello(token, fmt.Sprintf("wails-%d", os.Getpid()))
 	hello.Session = &session
+	hello.FromSeq = fromSeq
 	if err := json.NewEncoder(connection).Encode(hello); err != nil {
 		_ = connection.Close()
 		return nil, nil, err

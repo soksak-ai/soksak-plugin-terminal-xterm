@@ -57,8 +57,8 @@ func (sessions daemonCommandSessions) SidecarRequest(request json.RawMessage) (a
 	return sessions.daemon.SidecarRequest(request)
 }
 
-func (sessions commandSessions) Open(key string, stream string, cols, rows uint16) (command.Handle, error) {
-	handle, err := sessions.service.Open(key, stream, cols, rows)
+func (sessions commandSessions) Open(key string, stream string, cols, rows uint16, fromSeq *uint64) (command.Handle, error) {
+	handle, err := sessions.service.Open(key, stream, cols, rows, fromSeq)
 	return command.Handle{ID: handle.ID, Generation: handle.Generation}, err
 }
 

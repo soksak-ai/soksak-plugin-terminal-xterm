@@ -57,7 +57,9 @@ func TestTheNameListMatchesWhatRegisterTouches(t *testing.T) {
 // names Register touches, never what they answer.
 type stubSessions struct{}
 
-func (stubSessions) Open(string, string, uint16, uint16) (Handle, error) { return Handle{}, nil }
-func (stubSessions) Write(Handle, string) error                  { return nil }
-func (stubSessions) Resize(Handle, uint16, uint16) error         { return nil }
-func (stubSessions) Close(Handle) error                          { return nil }
+func (stubSessions) Open(string, string, uint16, uint16, *uint64) (Handle, error) {
+	return Handle{}, nil
+}
+func (stubSessions) Write(Handle, string) error          { return nil }
+func (stubSessions) Resize(Handle, uint16, uint16) error { return nil }
+func (stubSessions) Close(Handle) error                  { return nil }

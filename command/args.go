@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -129,28 +130,29 @@ func byteCount(command string, args control.Args, name string) (uint64, error) {
 	return uint64(signed), nil
 }
 
-// replaySpawns reports whether this build can honour the caller's replay
-// control.
-//
-// Three wire forms arrive here — absent, "none", and {fromSeq}.
-// Absent and "none" both mean the consumer owns its screen and requests no
-// restore from the core, which is the only thing that happens here. {fromSeq}
-// is a
-// coordinate into the daemon's output ring; no ring exists in this generation,
-// so a session opened under it would hand the consumer a silently empty tail
-// where it expected the bytes it had not yet drawn.
-func replaySpawns(command string, args control.Args) error {
+// replayFromSeq decodes the consumer's screen handoff coordinate. Absent,
+// null, and "none" attach at the live head. {fromSeq} attaches at that exact
+// daemon-ring sequence after the consumer paints the sidecar snapshot.
+func replayFromSeq(command string, args control.Args) (*uint64, error) {
 	raw, present := args["replay"]
 	if !present || string(raw) == "null" {
-		return nil
+		return nil, nil
 	}
 	var mode string
 	if err := json.Unmarshal(raw, &mode); err == nil {
 		if mode == "none" {
-			return nil
+			return nil, nil
 		}
-		return i18n.Errorf("terminal.args.replayMode", map[string]string{
+		return nil, i18n.Errorf("terminal.args.replayMode", map[string]string{
 			"command": command, "name": "replay", "mode": mode})
 	}
-	return i18n.Errorf("terminal.args.replayRange", map[string]string{"command": command, "name": "replay"})
+	var handoff struct {
+		FromSeq *uint64 `json:"fromSeq"`
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&handoff); err != nil || handoff.FromSeq == nil {
+		return nil, i18n.Errorf("terminal.args.replayRange", map[string]string{"command": command, "name": "replay"})
+	}
+	return handoff.FromSeq, nil
 }

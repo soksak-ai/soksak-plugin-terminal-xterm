@@ -12,6 +12,10 @@ func init() {
 			EN: "terminal identity and size are required",
 			KO: "터미널 식별자와 크기가 필요합니다",
 		},
+		"terminal.open.replayUnsupported": {
+			EN: `this terminal owner has no output ring for warm replay`,
+			KO: `이 터미널 소유자는 웜 재생용 출력 링을 제공하지 않습니다`,
+		},
 		"terminal.open.shuttingDown": {
 			EN: "terminal service is shutting down",
 			KO: "터미널 서비스가 종료 중입니다",

@@ -75,8 +75,8 @@ func (f *fakeOwner) open(call openCall) (Handle, error) {
 	return handle, nil
 }
 
-func (f *fakeOwner) Open(key string, stream string, cols, rows uint16) (Handle, error) {
-	return f.open(openCall{key: key, stream: stream, cols: cols, rows: rows})
+func (f *fakeOwner) Open(key string, stream string, cols, rows uint16, fromSeq *uint64) (Handle, error) {
+	return f.open(openCall{key: key, stream: stream, cols: cols, rows: rows, fromSeq: fromSeq})
 }
 
 func (f *fakeOwner) current(handle Handle) error {

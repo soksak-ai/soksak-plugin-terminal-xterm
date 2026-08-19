@@ -37,12 +37,16 @@ func init() {
 			KO: `{command}: 인자 "{name}" 은(는) 음수이면 안 됩니다`,
 		},
 		"terminal.args.replayMode": {
-			EN: `{command}: argument "{name}" is "{mode}", and this build replays nothing — the consumer owns its screen (send "none" or nothing)`,
-			KO: `{command}: 인자 "{name}" 이(가) "{mode}" 이고 이 빌드는 아무것도 재생하지 않습니다 — 화면은 소비자가 소유합니다. "none" 을 보내거나 생략하십시오`,
+			EN: `{command}: argument "{name}" is "{mode}"; use "none" or an object with fromSeq`,
+			KO: `{command}: 인자 "{name}"의 값 "{mode}"은 지원되지 않습니다. "none" 또는 fromSeq 객체를 사용하십시오`,
 		},
 		"terminal.args.replayRange": {
-			EN: `{command}: argument "{name}" requests a replay this build cannot perform — there is no output ring to resume from, so the tail would come back empty`,
-			KO: `{command}: 인자 "{name}" 이(가) 이 빌드가 수행할 수 없는 재생을 요구합니다 — 이어받을 출력 링이 없어 꼬리가 비어서 돌아옵니다`,
+			EN: `{command}: argument "{name}" must contain only a non-negative integer fromSeq`,
+			KO: `{command}: 인자 "{name}"에는 0 이상의 정수 fromSeq만 있어야 합니다`,
+		},
+		"terminal.args.replayWithPlacement": {
+			EN: `{command}: replay cannot be combined with cwd or shell because placement starts a new session`,
+			KO: `{command}: replay는 새 세션을 시작하는 cwd 또는 shell과 함께 사용할 수 없습니다`,
 		},
 	})
 }

@@ -164,9 +164,12 @@ func closeSession(value *session) {
 // An empty stream opens a shell nobody reads. The caller asked for a process,
 // not for its output, and that is what a round-trip check over the control
 // plane does.
-func (service *Service) Open(id string, stream string, cols, rows uint16) (Handle, error) {
+func (service *Service) Open(id string, stream string, cols, rows uint16, fromSeq *uint64) (Handle, error) {
 	if id == "" || cols == 0 || rows == 0 {
 		return Handle{}, i18n.Errorf("terminal.open.identityAndSize", nil)
+	}
+	if fromSeq != nil {
+		return Handle{}, i18n.Errorf("terminal.open.replayUnsupported", nil)
 	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {

@@ -74,11 +74,7 @@ func TestAnOptionalTextSeparatesAbsenceFromEmptiness(t *testing.T) {
 	}
 }
 
-func TestReplaySpawnsForEveryFormThatOwnsItsOwnScreen(t *testing.T) {
-	// Three wire forms reach here: absent, "none", and {fromSeq}.
-	// The first two mean the consumer draws its own screen, which is exactly
-	// what happens here. fromSeq is a coordinate into a ring this generation
-	// does not keep, so honouring it would hand back a silently empty tail.
+func TestReplayFromSeqDistinguishesLiveAttachFromWarmHandoff(t *testing.T) {
 	for _, testCase := range []struct {
 		name string
 		args control.Args
@@ -88,21 +84,30 @@ func TestReplaySpawnsForEveryFormThatOwnsItsOwnScreen(t *testing.T) {
 		{"none", control.Args{"replay": raw(`"none"`)}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			if err := replaySpawns("spawn_terminal", testCase.args); err != nil {
-				t.Fatalf("replaySpawns: %v", err)
+			fromSeq, err := replayFromSeq("spawn_terminal", testCase.args)
+			if err != nil {
+				t.Fatalf("replayFromSeq: %v", err)
+			}
+			if fromSeq != nil {
+				t.Fatalf("fromSeq = %d, want live attach", *fromSeq)
 			}
 		})
+	}
+	fromSeq, err := replayFromSeq("spawn_terminal", control.Args{"replay": raw(`{"fromSeq":4096}`)})
+	if err != nil || fromSeq == nil || *fromSeq != 4096 {
+		t.Fatalf("warm handoff = %v, %v", fromSeq, err)
 	}
 
 	for _, testCase := range []struct {
 		name string
 		args control.Args
 	}{
-		{"fromSeq", control.Args{"replay": raw(`{"fromSeq":4096}`)}},
+		{"missing fromSeq", control.Args{"replay": raw(`{}`)}},
+		{"unknown field", control.Args{"replay": raw(`{"fromSeq":4096,"tail":true}`)}},
 		{"other mode", control.Args{"replay": raw(`"ring"`)}},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
-			err := replaySpawns("spawn_terminal", testCase.args)
+			_, err := replayFromSeq("spawn_terminal", testCase.args)
 			if err == nil {
 				t.Fatal("a replay this build cannot perform must be refused, not ignored")
 			}

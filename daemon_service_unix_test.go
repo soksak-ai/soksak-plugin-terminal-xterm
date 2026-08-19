@@ -68,7 +68,7 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle, err := first.Open("win-test/tab-test", "test-output", 80, 24)
+	handle, err := first.Open("win-test/tab-test", "test-output", 80, 24, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,8 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 		t.Fatalf("shell ended with the first app owner: %v", err)
 	}
 
-	second, err := NewDaemonService(sink, options)
+	replaySink := &daemonRecordingSink{wake: make(chan struct{}, 1)}
+	second, err := NewDaemonService(replaySink, options)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,8 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 		_ = second.request(terminalcontract.OperationRequest{Op: "shutdown"}, false, nil)
 		_ = second.ServiceShutdown()
 	})
-	reattached, err := second.Open("win-test/tab-test", "test-output", 80, 24)
+	fromStart := uint64(0)
+	reattached, err := second.Open("win-test/tab-test", "test-output", 80, 24, &fromStart)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,6 +118,14 @@ func TestDaemonServiceReattachesTheSameShellAfterOwnerRestart(t *testing.T) {
 	}
 	if after[0].PID != before[0].PID {
 		t.Fatalf("shell pid changed across reattach: before=%d after=%d", before[0].PID, after[0].PID)
+	}
+	deadline = time.After(3 * time.Second)
+	for !replaySink.contains("__soksak_reattach__") {
+		select {
+		case <-replaySink.wake:
+		case <-deadline:
+			t.Fatal("warm handoff did not replay retained output from the requested sequence")
+		}
 	}
 }
 
@@ -137,7 +147,7 @@ func TestDaemonServiceStartsAndRelaysTheRestoreSidecar(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handle, err := service.Open("win-test/tab-sidecar", "", 80, 24)
+	handle, err := service.Open("win-test/tab-sidecar", "", 80, 24, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

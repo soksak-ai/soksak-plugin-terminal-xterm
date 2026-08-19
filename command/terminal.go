@@ -50,7 +50,7 @@ import (
 type Sessions interface {
 	// stream is the receiver the caller passed. An empty one opens a shell whose
 	// bytes nobody reads.
-	Open(key string, stream string, cols, rows uint16) (Handle, error)
+	Open(key string, stream string, cols, rows uint16, fromSeq *uint64) (Handle, error)
 	Write(handle Handle, data string) error
 	Resize(handle Handle, cols, rows uint16) error
 	Close(handle Handle) error
@@ -204,7 +204,8 @@ func Register(registry *control.Registry, deps Deps) {
 		if err != nil {
 			return nil, err
 		}
-		if err := replaySpawns(command, args); err != nil {
+		fromSeq, err := replayFromSeq(command, args)
+		if err != nil {
 			return nil, err
 		}
 		windowLabel, _, err := optionalText(command, args, "windowLabel")
@@ -253,6 +254,9 @@ func Register(registry *control.Registry, deps Deps) {
 		var handle Handle
 		switch {
 		case placed || chosen:
+			if fromSeq != nil {
+				return nil, i18n.Errorf("terminal.args.replayWithPlacement", map[string]string{"command": command})
+			}
 			if placement == nil {
 				name := "cwd"
 				if !placed {
@@ -262,7 +266,7 @@ func Register(registry *control.Registry, deps Deps) {
 			}
 			handle, err = placement.OpenAt(key, cols, rows, cwd, shell)
 		default:
-			handle, err = deps.Sessions.Open(key, stream, cols, rows)
+			handle, err = deps.Sessions.Open(key, stream, cols, rows, fromSeq)
 		}
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", command, err)
