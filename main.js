@@ -7066,7 +7066,7 @@ var plugin_default = {
     "ui:statusbar",
     "commands",
     "programs",
-    "pty",
+    "sidecar",
     "terminal"
   ],
   contributes: {
@@ -7153,7 +7153,23 @@ var plugin_default = {
         ]
       }
     ]
-  }
+  },
+  sidecars: [
+    {
+      name: "pty",
+      interface: {
+        id: "soksak-spec-sidecar-pty",
+        range: "0.0.1"
+      }
+    },
+    {
+      name: "terminal-vt100",
+      interface: {
+        id: "soksak-spec-sidecar-terminal",
+        range: "0.0.3"
+      }
+    }
+  ]
 };
 
 // src/manifest.ts
@@ -7271,6 +7287,12 @@ function activate(ctx) {
   const app = ctx.app;
   const screens = /* @__PURE__ */ new Map();
   const binding = ptyBinding(app);
+  const windowGone = app.events?.on?.("window.gone", (payload) => {
+    const windowLabel = payload.windowLabel;
+    if (typeof windowLabel !== "string" || windowLabel === "") return;
+    void binding.closeWindow(windowLabel);
+  });
+  if (windowGone) ctx.subscriptions.push(windowGone);
   const screenOf = (container) => {
     for (const mounted of screens.values()) {
       if (mounted.container === container) return mounted.screen;
@@ -7489,24 +7511,100 @@ function sessionKeyOf(viewContext) {
   const context = viewContext;
   return typeof context?.viewId === "string" ? context.viewId : "";
 }
+var PTY_UNIT = "pty";
+var PTY = {
+  open: "pty.open",
+  write: "pty.write",
+  resize: "pty.resize",
+  close: "pty.close",
+  pane: "pty.pane",
+  closeWindow: "pty.closeWindow",
+  attach: "pty.attach"
+};
+var requestSeq = 0;
+function unitRequest(command, request) {
+  requestSeq += 1;
+  return { id: `t${requestSeq}`, command, args: { request } };
+}
+function answerOf(response) {
+  if (response.ok !== true) {
+    throw new Error(typeof response.error === "string" ? response.error : "the unit refused");
+  }
+  const result = response.result;
+  return result?.data ?? {};
+}
+function encode(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
 function ptyBinding(app) {
+  let channel = null;
+  const unit = () => channel ??= app.sidecar.open(PTY_UNIT);
+  const streams = /* @__PURE__ */ new Map();
+  const readers = /* @__PURE__ */ new Map();
   return {
     async open(paneId, cols, rows, replay) {
-      const id = await app.pty.spawn({ cols, rows, paneId, replay });
+      const opened = answerOf(
+        await (await unit()).send(
+          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: "" })
+        )
+      );
+      const id = Number(opened.session);
       currentSessionId = id;
+      const fromSeq = replay === "none" ? void 0 : replay.fromSeq;
+      const { close } = await (await unit()).stream(
+        unitRequest(PTY.attach, fromSeq === void 0 ? { session: id } : { session: id, fromSeq }),
+        {
+          onBytes: (bytes) => {
+            readers.get(id)?.forEach((reader) => reader(bytes));
+            app.terminal?.observe?.(paneId, bytes);
+          }
+        }
+      );
+      streams.set(id, close);
       return id;
     },
-    write: (id, data) => app.pty.write(id, data),
-    resize: (id, cols, rows) => app.pty.resize(id, cols, rows),
-    close: (id) => app.pty.close(id),
-    onData: (id, callback) => app.pty.onData(id, callback),
-    registerIo: (paneId, io) => app.pty.registerIo(paneId, io),
-    paneAlive: (paneId) => app.pty.paneAlive(paneId),
-    sidecarRequest: (request) => app.pty.sidecarRequest(request),
+    async write(id, data) {
+      answerOf(await (await unit()).send(unitRequest(PTY.write, { session: id, dataB64: encode(data) })));
+    },
+    async resize(id, cols, rows) {
+      answerOf(await (await unit()).send(unitRequest(PTY.resize, { session: id, cols, rows })));
+    },
+    async close(id) {
+      streams.get(id)?.dispose();
+      streams.delete(id);
+      readers.delete(id);
+      answerOf(await (await unit()).send(unitRequest(PTY.close, { session: id })));
+    },
+    onData(id, callback) {
+      let set = readers.get(id);
+      if (!set) {
+        set = /* @__PURE__ */ new Set();
+        readers.set(id, set);
+      }
+      set.add(callback);
+      return { dispose: () => void readers.get(id)?.delete(callback) };
+    },
+    registerIo: (paneId, io) => app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {
+    } },
+    async paneAlive(paneId) {
+      const held = answerOf(await (await unit()).send(unitRequest(PTY.pane, { paneId })));
+      return held.held === true;
+    },
+    async closeWindow(windowLabel) {
+      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
+    },
+    async sidecarRequest(request) {
+      const restore = await app.sidecar.open(RESTORE_UNIT);
+      return restore.send(request);
+    },
     async traceInput() {
     }
   };
 }
+var RESTORE_UNIT = "terminal-vt100";
 export {
   activate,
   attachTerminalInputTrace,

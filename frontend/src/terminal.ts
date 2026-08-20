@@ -47,6 +47,12 @@ export type TerminalBinding = {
   traceInput(handle: TerminalHandle, event: TerminalInputTrace): Promise<void>;
   paneAlive(paneId: string): Promise<boolean>;
   sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+  /** Let go of every session opened under a window that has gone.
+   *
+   *  The unit holds shells that outlive an application generation, which is why they do not end by
+   *  themselves when the window that opened them closes. Nothing else ends them: the plugin instance
+   *  in that window died with it. */
+  closeWindow(windowLabel: string): Promise<void>;
 };
 
 export type TerminalMountStatus = { code: string; message?: string } | null;

@@ -52,6 +52,7 @@ function binding(overrides: Partial<TerminalBinding> = {}): TerminalBinding {
     write: vi.fn(async () => {}),
     resize: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    closeWindow: vi.fn(async () => {}),
     onData: vi.fn(() => ({ dispose: () => undefined })),
     registerIo: vi.fn(() => ({ dispose: () => undefined })),
     traceInput: vi.fn(async () => {}),

@@ -42,6 +42,24 @@ export interface TerminalHost {
   terminal?: {
     getCwd?(paneId: string): string | undefined;
     onCwd?(paneId: string, listener: (cwd: string) => void): { dispose(): void };
+    /** Hand the host's decoder this pane's raw output.
+     *
+     *  The host parses OSC 7/133/633 out of it and answers getCwd and the command events from what
+     *  it found. It decodes and decides nothing — what a command boundary means is decided here.
+     *
+     *  The host sees no bytes otherwise: the shell is a unit this plugin drives, and the stream goes
+     *  from that unit to this code. Without this call every reading above stays empty on a pane that
+     *  is running perfectly, which reads as shell integration that is broken. */
+    observe?(paneId: string, bytes: Uint8Array): void;
+    /** Hand the host a way to read this screen and to type into it.
+     *
+     *  Without it the host's own terminal surfaces answer "not ready" for a pane that is running:
+     *  term.read, term.send and app.terminal.readBuffer all resolve through this registration. The
+     *  screen is this plugin's, so the host cannot reach it any other way. */
+    registerIo?(
+      paneId: string,
+      io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
+    ): { dispose(): void };
   };
   /** The host's event bus. `command.started` and `command.finished` are what the
    *  OSC 133/633 decoder publishes; what they should look like on screen is
@@ -53,34 +71,29 @@ export interface TerminalHost {
         paneId?: string;
         commandLine?: string;
         paths?: string[];
+        windowLabel?: string;
       }) => void,
     ): { dispose(): void };
   };
-  /** The PTY capability, granted by the "pty" permission the manifest declares.
+  /** The units this plugin declared, granted by the "sidecar" permission.
    *
-   *  This is the only route from this plugin to a shell. Calling the backend's
-   *  commands directly would be a private channel: the capability is also what
-   *  feeds the host's observation of a session — working directory, command
-   *  boundaries, buffer reads — and a plugin that goes around it turns those
-   *  off with nothing reporting that it did. */
-  pty: {
-    spawn(options: {
-      cols: number;
-      rows: number;
-      paneId?: string;
-      replay?: "none" | { fromSeq: number };
-    }): Promise<number>;
-    write(id: number, data: string): Promise<void>;
-    resize(id: number, cols: number, rows: number): Promise<void>;
-    close(id: number): Promise<void>;
-    onData(id: number, callback: (bytes: Uint8Array) => void): { dispose(): void };
-    registerIo(
-      paneId: string,
-      io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
-    ): { dispose(): void };
-    paneAlive(paneId: string): Promise<boolean>;
-    sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+   *  A shell reaches this plugin through the unit its manifest declared and through nothing else.
+   *  The host opens only a declared name, refuses one whose installed release implements a different
+   *  contract, and passes requests through without reading them — so what a request means is this
+   *  plugin's business with its unit, and the host has no opinion about terminals. */
+  sidecar: {
+    open(name: string): Promise<SidecarChannel>;
   };
+}
+
+/** One opened unit. What crosses it means whatever this plugin's contract with it says. */
+export interface SidecarChannel {
+  send(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+  stream(
+    request: Record<string, unknown>,
+    handlers: { onBytes: (data: Uint8Array) => void; onEnd?: (reason: string) => void },
+  ): Promise<{ answer: Record<string, unknown>; close: { dispose(): void } }>;
+  close(): Promise<void>;
 }
 
 export interface ActivateContext {
@@ -112,6 +125,22 @@ export function activate(ctx: ActivateContext): void {
     }
   >();
   const binding = ptyBinding(app);
+
+  // A window this plugin opened sessions under has gone, so the unit is told to let them go.
+  //
+  // Nothing else will: the plugin instance in that window died with it, and the unit holds shells
+  // that outlive an application generation on purpose — which is exactly why they do not end by
+  // themselves. Without this, every closed window leaves its shells running until the application
+  // quits and the unit is reaped.
+  //
+  // This instance is in a window that survived. Which sessions belong to which window is the unit's
+  // record, keyed by the label the caller sent when it opened them.
+  const windowGone = app.events?.on?.("window.gone", (payload) => {
+    const windowLabel = payload.windowLabel;
+    if (typeof windowLabel !== "string" || windowLabel === "") return;
+    void binding.closeWindow(windowLabel);
+  });
+  if (windowGone) ctx.subscriptions.push(windowGone);
   const screenOf = (container: HTMLElement): TerminalScreen | null => {
     for (const mounted of screens.values()) {
       if (mounted.container === container) return mounted.screen;
@@ -401,25 +430,132 @@ function sessionKeyOf(viewContext: unknown): string {
   return typeof context?.viewId === "string" ? context.viewId : "";
 }
 
+/** The unit this plugin's manifest declares for shells. */
+const PTY_UNIT = "pty";
+
+/** The commands on that unit's own socket, as its contract names them. */
+const PTY = {
+  open: "pty.open",
+  write: "pty.write",
+  resize: "pty.resize",
+  close: "pty.close",
+  pane: "pty.pane",
+  closeWindow: "pty.closeWindow",
+  attach: "pty.attach",
+} as const;
+
+/** One request in the envelope the unit answers on. The id is this side's and it is echoed back. */
+let requestSeq = 0;
+function unitRequest(command: string, request: Record<string, unknown>): Record<string, unknown> {
+  requestSeq += 1;
+  return { id: `t${requestSeq}`, command, args: { request } };
+}
+
+/** The data out of an answer, or a thrown refusal.
+ *
+ *  A refusal is thrown rather than returned as an empty result, because a caller that cannot tell
+ *  the two apart draws an empty terminal and concludes the shell produced nothing. */
+function answerOf(response: Record<string, unknown>): Record<string, unknown> {
+  if (response.ok !== true) {
+    throw new Error(typeof response.error === "string" ? response.error : "the unit refused");
+  }
+  const result = response.result as { data?: unknown } | undefined;
+  return (result?.data ?? {}) as Record<string, unknown>;
+}
+
+function encode(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+/** Drives shells through the declared unit, and hands the host what it needs to observe them.
+ *
+ *  Every request below is opaque to the host: it opens the unit this manifest declared, checks that
+ *  what is installed implements the contract that was declared, and relays. What the requests mean
+ *  is this plugin's contract with that unit.
+ *
+ *  The host is fed on purpose. It decodes OSC 7/133/633 out of the same bytes the screen gets, and
+ *  the only reason it can is that this code hands them over — the shell is a separate process now,
+ *  and nothing passes through the application on the way.
+ */
 function ptyBinding(app: TerminalHost): TerminalBinding {
+  let channel: Promise<SidecarChannel> | null = null;
+  const unit = () => (channel ??= app.sidecar.open(PTY_UNIT));
+  // One stream per session, kept so closing a pane ends its stream and no other's.
+  const streams = new Map<number, { dispose(): void }>();
+  const readers = new Map<number, Set<(bytes: Uint8Array) => void>>();
+
   return {
     async open(paneId, cols, rows, replay) {
-      // The pane id goes with the session. It is what the host attaches its
-      // observation to, and what a reattach after a reload finds it by.
-      const id = await app.pty.spawn({ cols, rows, paneId, replay });
+      const opened = answerOf(
+        await (await unit()).send(
+          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: "" }),
+        ),
+      );
+      const id = Number(opened.session);
       currentSessionId = id;
+
+      // Where to resume from. A session with no history starts at the live edge rather than
+      // replaying a ring this screen has drawn none of.
+      const fromSeq = replay === "none" ? undefined : replay.fromSeq;
+      const { close } = await (await unit()).stream(
+        unitRequest(PTY.attach, fromSeq === undefined ? { session: id } : { session: id, fromSeq }),
+        {
+          onBytes: (bytes) => {
+            readers.get(id)?.forEach((reader) => reader(bytes));
+            // The host's decoder gets the same bytes the screen does, keyed by the pane. Without
+            // this the working directory and the command events stay empty on a running shell.
+            app.terminal?.observe?.(paneId, bytes);
+          },
+        },
+      );
+      streams.set(id, close);
       return id;
     },
-    write: (id, data) => app.pty.write(id, data),
-    resize: (id, cols, rows) => app.pty.resize(id, cols, rows),
-    close: (id) => app.pty.close(id),
-    onData: (id, callback) => app.pty.onData(id, callback),
-    registerIo: (paneId, io) => app.pty.registerIo(paneId, io),
-    paneAlive: (paneId) => app.pty.paneAlive(paneId),
-    sidecarRequest: (request) => app.pty.sidecarRequest(request),
+    async write(id, data) {
+      answerOf(await (await unit()).send(unitRequest(PTY.write, { session: id, dataB64: encode(data) })));
+    },
+    async resize(id, cols, rows) {
+      answerOf(await (await unit()).send(unitRequest(PTY.resize, { session: id, cols, rows })));
+    },
+    async close(id) {
+      streams.get(id)?.dispose();
+      streams.delete(id);
+      readers.delete(id);
+      answerOf(await (await unit()).send(unitRequest(PTY.close, { session: id })));
+    },
+    onData(id, callback) {
+      let set = readers.get(id);
+      if (!set) {
+        set = new Set();
+        readers.set(id, set);
+      }
+      set.add(callback);
+      return { dispose: () => void readers.get(id)?.delete(callback) };
+    },
+    registerIo: (paneId, io) =>
+      app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {} },
+    async paneAlive(paneId) {
+      const held = answerOf(await (await unit()).send(unitRequest(PTY.pane, { paneId })));
+      return held.held === true;
+    },
+    async closeWindow(windowLabel) {
+      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
+    },
+    async sidecarRequest(request) {
+      // The restore unit, which is a different declaration and a different contract. Relayed the
+      // same way and read no more here than the host reads it.
+      const restore = await app.sidecar.open(RESTORE_UNIT);
+      return restore.send(request);
+    },
     async traceInput() {
       // The host records input traces when it is asked to. Nothing here reads
       // the answer, and a failed trace must not fail a keystroke.
     },
   };
 }
+
+/** The unit this plugin declares for restoring a screen. */
+const RESTORE_UNIT = "terminal-vt100";

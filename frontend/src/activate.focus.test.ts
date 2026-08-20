@@ -20,12 +20,12 @@ describe("terminal view focus boundary", () => {
       },
       commands: { register: () => ({ dispose() {} }) },
       locale: () => "en",
-      pty: {
-        spawn: async () => 1,
-        write: async () => {}, resize: async () => {}, close: async () => {},
-        onData: () => ({ dispose() {} }), registerIo: () => ({ dispose() {} }),
-        paneAlive: async () => false,
-        sidecarRequest: async () => ({ ok: true, data: {} }),
+      sidecar: {
+        open: async () => ({
+          send: async () => ({ ok: true, result: { code: "OK", data: { session: 1, held: false } } }),
+          stream: async () => ({ answer: { ok: true }, close: { dispose() {} } }),
+          close: async () => {},
+        }),
       },
     };
     activate({ app: host, subscriptions: [] });
