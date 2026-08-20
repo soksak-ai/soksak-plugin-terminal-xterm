@@ -35,6 +35,13 @@ export interface TerminalHost {
   };
   /** The host's display language. This plugin translates its own strings. */
   locale(): string;
+  /** Which window this instance is in.
+   *
+   *  It travels with a session so the unit can be asked to let go of one window's sessions when
+   *  that window goes, and so a screen mirror can tell two windows' panes apart. An empty label
+   *  makes every session look like it belongs to the same nameless window, and closing one window
+   *  would then reach every window's shells or none. */
+  windowLabel(): string;
   /** Observation of a pane's shell, granted by the "terminal" permission. The
    *  host parses OSC 7/133/633 out of the byte stream — a protocol decoder every
    *  plugin reading a PTY would otherwise write again — and this reads the
@@ -433,6 +440,13 @@ function sessionKeyOf(viewContext: unknown): string {
 /** The unit this plugin's manifest declares for shells. */
 const PTY_UNIT = "pty";
 
+/** The unit that keeps a screen for a pane so a reopened one comes back warm.
+ *
+ *  A name, not an implementation: the manifest declares the interface
+ *  `soksak-spec-sidecar-terminal`, and vt100, alacritty, ghostty and wezterm each implement it.
+ *  Which one is installed under this name is the home's answer, never this plugin's. */
+const RESTORE_UNIT = "terminal-vt100";
+
 /** The commands on that unit's own socket, as its contract names them. */
 const PTY = {
   open: "pty.open",
@@ -440,6 +454,7 @@ const PTY = {
   resize: "pty.resize",
   close: "pty.close",
   pane: "pty.pane",
+  ack: "pty.ack",
   closeWindow: "pty.closeWindow",
   attach: "pty.attach",
 } as const;
@@ -480,18 +495,28 @@ function encode(text: string): string {
  *  the only reason it can is that this code hands them over — the shell is a separate process now,
  *  and nothing passes through the application on the way.
  */
-function ptyBinding(app: TerminalHost): TerminalBinding {
+export function ptyBinding(app: TerminalHost): TerminalBinding {
   let channel: Promise<SidecarChannel> | null = null;
   const unit = () => (channel ??= app.sidecar.open(PTY_UNIT));
   // One stream per session, kept so closing a pane ends its stream and no other's.
   const streams = new Map<number, { dispose(): void }>();
   const readers = new Map<number, Set<(bytes: Uint8Array) => void>>();
+  // What arrived before anybody subscribed.
+  //
+  // The stream is opened inside open() and a reader arrives after it returns, so the shell's first
+  // prompt and a replayed tail land in between. Dropped, a restored screen comes back blank and a
+  // fresh one shows nothing until the first keystroke — both read as a terminal that did not start.
+  const pending = new Map<number, Uint8Array[]>();
+  // How much of each session's output has been taken. The unit pauses its reader above a high
+  // watermark and resumes at a low one, so a client that never acks stops receiving after about a
+  // megabyte — the shell is alive, the pane is frozen, and nothing says why.
+  const taken = new Map<number, number>();
 
   return {
     async open(paneId, cols, rows, replay) {
       const opened = answerOf(
         await (await unit()).send(
-          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: "" }),
+          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: app.windowLabel() }),
         ),
       );
       const id = Number(opened.session);
@@ -504,7 +529,30 @@ function ptyBinding(app: TerminalHost): TerminalBinding {
         unitRequest(PTY.attach, fromSeq === undefined ? { session: id } : { session: id, fromSeq }),
         {
           onBytes: (bytes) => {
-            readers.get(id)?.forEach((reader) => reader(bytes));
+            // Taken, and said so. The unit pauses its reader on unacked bytes rather than on how
+            // much it holds, so this is what keeps output coming at all.
+            const soFar = (taken.get(id) ?? 0) + bytes.length;
+            taken.set(id, soFar);
+            void (async () => {
+              try {
+                answerOf(
+                  await (await unit()).send(unitRequest(PTY.ack, { session: id, bytes: soFar })),
+                );
+              } catch {
+                // A refused ack is not a reason to drop the bytes that arrived. The next one carries
+                // the same running total, so one that failed costs nothing.
+              }
+            })();
+
+            const subscribed = readers.get(id);
+            if (subscribed && subscribed.size > 0) {
+              subscribed.forEach((reader) => reader(bytes));
+            } else {
+              // Held rather than dropped. A reader arrives after open() returns.
+              const waiting = pending.get(id) ?? [];
+              waiting.push(bytes);
+              pending.set(id, waiting);
+            }
             // The host's decoder gets the same bytes the screen does, keyed by the pane. Without
             // this the working directory and the command events stay empty on a running shell.
             app.terminal?.observe?.(paneId, bytes);
@@ -524,6 +572,8 @@ function ptyBinding(app: TerminalHost): TerminalBinding {
       streams.get(id)?.dispose();
       streams.delete(id);
       readers.delete(id);
+      pending.delete(id);
+      taken.delete(id);
       answerOf(await (await unit()).send(unitRequest(PTY.close, { session: id })));
     },
     onData(id, callback) {
@@ -533,6 +583,14 @@ function ptyBinding(app: TerminalHost): TerminalBinding {
         readers.set(id, set);
       }
       set.add(callback);
+      // Whatever arrived before this reader existed, in the order it arrived. The first subscriber
+      // takes it; a second one is a second view of a stream already in progress and gets what comes
+      // next, which is what it would have got had it subscribed a moment later anyway.
+      const waiting = pending.get(id);
+      if (waiting && waiting.length > 0) {
+        pending.delete(id);
+        for (const bytes of waiting) callback(bytes);
+      }
       return { dispose: () => void readers.get(id)?.delete(callback) };
     },
     registerIo: (paneId, io) =>
@@ -541,14 +599,14 @@ function ptyBinding(app: TerminalHost): TerminalBinding {
       const held = answerOf(await (await unit()).send(unitRequest(PTY.pane, { paneId })));
       return held.held === true;
     },
-    async closeWindow(windowLabel) {
-      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
-    },
     async sidecarRequest(request) {
       // The restore unit, which is a different declaration and a different contract. Relayed the
       // same way and read no more here than the host reads it.
       const restore = await app.sidecar.open(RESTORE_UNIT);
       return restore.send(request);
+    },
+    async closeWindow(windowLabel) {
+      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
     },
     async traceInput() {
       // The host records input traces when it is asked to. Nothing here reads
@@ -558,4 +616,3 @@ function ptyBinding(app: TerminalHost): TerminalBinding {
 }
 
 /** The unit this plugin declares for restoring a screen. */
-const RESTORE_UNIT = "terminal-vt100";

@@ -20,6 +20,7 @@ describe("terminal view focus boundary", () => {
       },
       commands: { register: () => ({ dispose() {} }) },
       locale: () => "en",
+      windowLabel: () => "win-test",
       sidecar: {
         open: async () => ({
           send: async () => ({ ok: true, result: { code: "OK", data: { session: 1, held: false } } }),

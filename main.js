@@ -7066,7 +7066,7 @@ var plugin_default = {
     "ui:statusbar",
     "commands",
     "programs",
-    "sidecar",
+    "pty",
     "terminal"
   ],
   contributes: {
@@ -7153,23 +7153,7 @@ var plugin_default = {
         ]
       }
     ]
-  },
-  sidecars: [
-    {
-      name: "pty",
-      interface: {
-        id: "soksak-spec-sidecar-pty",
-        range: "0.0.1"
-      }
-    },
-    {
-      name: "terminal-vt100",
-      interface: {
-        id: "soksak-spec-sidecar-terminal",
-        range: "0.0.3"
-      }
-    }
-  ]
+  }
 };
 
 // src/manifest.ts
@@ -7512,12 +7496,14 @@ function sessionKeyOf(viewContext) {
   return typeof context?.viewId === "string" ? context.viewId : "";
 }
 var PTY_UNIT = "pty";
+var RESTORE_UNIT = "terminal-vt100";
 var PTY = {
   open: "pty.open",
   write: "pty.write",
   resize: "pty.resize",
   close: "pty.close",
   pane: "pty.pane",
+  ack: "pty.ack",
   closeWindow: "pty.closeWindow",
   attach: "pty.attach"
 };
@@ -7544,11 +7530,13 @@ function ptyBinding(app) {
   const unit = () => channel ??= app.sidecar.open(PTY_UNIT);
   const streams = /* @__PURE__ */ new Map();
   const readers = /* @__PURE__ */ new Map();
+  const pending = /* @__PURE__ */ new Map();
+  const taken = /* @__PURE__ */ new Map();
   return {
     async open(paneId, cols, rows, replay) {
       const opened = answerOf(
         await (await unit()).send(
-          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: "" })
+          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: app.windowLabel() })
         )
       );
       const id = Number(opened.session);
@@ -7558,7 +7546,24 @@ function ptyBinding(app) {
         unitRequest(PTY.attach, fromSeq === void 0 ? { session: id } : { session: id, fromSeq }),
         {
           onBytes: (bytes) => {
-            readers.get(id)?.forEach((reader) => reader(bytes));
+            const soFar = (taken.get(id) ?? 0) + bytes.length;
+            taken.set(id, soFar);
+            void (async () => {
+              try {
+                answerOf(
+                  await (await unit()).send(unitRequest(PTY.ack, { session: id, bytes: soFar }))
+                );
+              } catch {
+              }
+            })();
+            const subscribed = readers.get(id);
+            if (subscribed && subscribed.size > 0) {
+              subscribed.forEach((reader) => reader(bytes));
+            } else {
+              const waiting = pending.get(id) ?? [];
+              waiting.push(bytes);
+              pending.set(id, waiting);
+            }
             app.terminal?.observe?.(paneId, bytes);
           }
         }
@@ -7576,6 +7581,8 @@ function ptyBinding(app) {
       streams.get(id)?.dispose();
       streams.delete(id);
       readers.delete(id);
+      pending.delete(id);
+      taken.delete(id);
       answerOf(await (await unit()).send(unitRequest(PTY.close, { session: id })));
     },
     onData(id, callback) {
@@ -7585,6 +7592,11 @@ function ptyBinding(app) {
         readers.set(id, set);
       }
       set.add(callback);
+      const waiting = pending.get(id);
+      if (waiting && waiting.length > 0) {
+        pending.delete(id);
+        for (const bytes of waiting) callback(bytes);
+      }
       return { dispose: () => void readers.get(id)?.delete(callback) };
     },
     registerIo: (paneId, io) => app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {
@@ -7593,24 +7605,24 @@ function ptyBinding(app) {
       const held = answerOf(await (await unit()).send(unitRequest(PTY.pane, { paneId })));
       return held.held === true;
     },
-    async closeWindow(windowLabel) {
-      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
-    },
     async sidecarRequest(request) {
       const restore = await app.sidecar.open(RESTORE_UNIT);
       return restore.send(request);
+    },
+    async closeWindow(windowLabel) {
+      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
     },
     async traceInput() {
     }
   };
 }
-var RESTORE_UNIT = "terminal-vt100";
 export {
   activate,
   attachTerminalInputTrace,
   createSerialTerminalWriter,
   manifest,
   mountTerminal,
+  ptyBinding,
   routeXtermData,
   sentence,
   t,

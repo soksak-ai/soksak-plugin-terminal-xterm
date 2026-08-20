@@ -39,6 +39,7 @@ describe("renderer benchmark command", () => {
         },
       },
       locale: () => "en",
+      windowLabel: () => "win-test",
       sidecar: {
         open: async () => ({
           send: async () => ({ ok: true, result: { code: "OK", data: { session: 1, held: false } } }),
@@ -86,6 +87,7 @@ describe("renderer benchmark command", () => {
         },
       },
       locale: () => "en",
+      windowLabel: () => "win-test",
       pty: {},
     } as unknown as TerminalHost;
     activate({ app: host, subscriptions: [] });

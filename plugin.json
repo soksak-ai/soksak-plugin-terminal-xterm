@@ -16,7 +16,7 @@
     "ui:statusbar",
     "commands",
     "programs",
-    "pty",
+    "sidecar",
     "terminal"
   ],
   "contributes": {
@@ -103,5 +103,21 @@
         ]
       }
     ]
-  }
+  },
+  "sidecars": [
+    {
+      "name": "pty",
+      "interface": {
+        "id": "soksak-spec-sidecar-pty",
+        "range": "0.0.1"
+      }
+    },
+    {
+      "name": "terminal-vt100",
+      "interface": {
+        "id": "soksak-spec-sidecar-terminal",
+        "range": "0.0.3"
+      }
+    }
+  ]
 }
