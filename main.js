@@ -7465,13 +7465,13 @@ function readScreen(terminal, lines) {
 
 // ../plugin.json
 var plugin_default = {
-  spec: "soksak-spec-plugin@0.0.1",
   id: "soksak-plugin-terminal-xterm",
   name: {
     en: "Terminal",
     ko: "\uD130\uBBF8\uB110"
   },
   version: "0.0.1",
+  appVersionRequirement: "0.0.1",
   description: {
     en: "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
     ko: "\uC2E4\uC81C \uB85C\uADF8\uC778 \uC178\uC5D0 \uBD99\uB294 \uD130\uBBF8\uB110 \uBDF0. \uB80C\uB354\uB9C1\uC740 xterm.js, \uC178\uC740 \uD638\uC2A4\uD2B8\uC758 PTY \uBA85\uB839."
@@ -7608,14 +7608,14 @@ var plugin_default = {
       name: "pty",
       interface: {
         id: "soksak-spec-sidecar-pty",
-        version: "0.0.1"
+        requirement: "0.0.1"
       }
     },
     {
       name: "terminal-vt100",
       interface: {
         id: "soksak-spec-sidecar-terminal",
-        version: "0.0.1"
+        requirement: "0.0.1"
       }
     }
   ]

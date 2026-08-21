@@ -1,11 +1,11 @@
 {
-  "spec": "soksak-spec-plugin@0.0.1",
   "id": "soksak-plugin-terminal-xterm",
   "name": {
     "en": "Terminal",
     "ko": "터미널"
   },
   "version": "0.0.1",
+  "appVersionRequirement": "0.0.1",
   "description": {
     "en": "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
     "ko": "실제 로그인 셸에 붙는 터미널 뷰. 렌더링은 xterm.js, 셸은 호스트의 PTY 명령."
@@ -142,14 +142,14 @@
       "name": "pty",
       "interface": {
         "id": "soksak-spec-sidecar-pty",
-        "version": "0.0.1"
+        "requirement": "0.0.1"
       }
     },
     {
       "name": "terminal-vt100",
       "interface": {
         "id": "soksak-spec-sidecar-terminal",
-        "version": "0.0.1"
+        "requirement": "0.0.1"
       }
     }
   ]
