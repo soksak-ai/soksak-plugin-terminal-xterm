@@ -6963,6 +6963,94 @@ function createTerminalSessionBinding(host, options) {
   }
 }
 
+// ../../../soksak-kits/soksak-kit-plugin-terminal/node_modules/.pnpm/@soksak+soksak-contract-plugin-terminal@file+..+..+soksak-contracts+soksak-contract-plugin-terminal/node_modules/@soksak/soksak-contract-plugin-terminal/src/index.ts
+var TERMINAL_PLUGIN_CONTRACT = Object.freeze({
+  id: "soksak-spec-plugin-terminal",
+  version: "0.0.1"
+});
+var TERMINAL_PLUGIN_PHASES = Object.freeze([
+  "initializing",
+  "preparing-recovery",
+  "applying-snapshot",
+  "attaching-live-stream",
+  "live",
+  "archived",
+  "degraded-tail",
+  "blocked",
+  "closed"
+]);
+var TERMINAL_PLUGIN_COMMANDS = Object.freeze([
+  "status",
+  "wait",
+  "archive",
+  "send",
+  "read",
+  "clear",
+  "focus",
+  "recovery-status"
+]);
+var input = (properties, required = []) => Object.freeze({ properties: Object.freeze(properties), required: Object.freeze(required), additionalProperties: false });
+var output = (properties, required) => input(properties, required);
+var statusOutput = output({
+  phase: "string",
+  pluginId: "string",
+  engineId: "string",
+  rendererId: "string",
+  rendererProfile: "string",
+  recoveryOutcome: "string",
+  fidelity: "string",
+  failure: ["object", "null"]
+}, ["phase", "pluginId", "engineId", "rendererId", "rendererProfile", "recoveryOutcome", "fidelity", "failure"]);
+var viewInput = () => input({ view: "string" });
+var TERMINAL_PLUGIN_COMMAND_SCHEMAS = Object.freeze({
+  status: { danger: "none", input: viewInput(), output: statusOutput },
+  wait: {
+    danger: "none",
+    input: input({ view: "string", phase: "string", timeoutMs: "number", contains: "string" }, ["phase"]),
+    output: output({
+      phase: "string",
+      recoveryOutcome: "string",
+      fidelity: "string",
+      failure: ["object", "null"],
+      cols: "number",
+      rows: "number",
+      operation: "string"
+    }, ["phase", "recoveryOutcome", "fidelity"])
+  },
+  archive: {
+    danger: "none",
+    input: viewInput(),
+    output: output({ archived: "boolean", bytes: "number" }, ["archived"])
+  },
+  send: {
+    danger: "inject",
+    input: input({ view: "string", data: "string" }, ["data"]),
+    output: output({ sent: ["number", "boolean"] }, ["sent"])
+  },
+  read: {
+    danger: "none",
+    input: input({ view: "string", lines: "number" }),
+    output: output({ text: "string" }, ["text"])
+  },
+  clear: {
+    danger: "none",
+    input: viewInput(),
+    output: output({ cleared: "boolean" }, ["cleared"])
+  },
+  focus: {
+    danger: "none",
+    input: viewInput(),
+    output: output({ focused: "boolean" }, ["focused"])
+  },
+  "recovery-status": { danger: "none", input: viewInput(), output: statusOutput }
+});
+var TERMINAL_PLUGIN_NODES = Object.freeze([
+  "terminal-root",
+  "terminal-screen",
+  "terminal-input",
+  "terminal-restore-status"
+]);
+
 // src/rendererBenchmark.ts
 var PRINTABLE_LINE_BYTES = 80;
 function createRendererPayload(mode, bytes) {
@@ -7055,7 +7143,7 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
   });
   host.dataset.terminalIme = "webkit";
   let handle = null;
-  let output = null;
+  let output2 = null;
   let io = null;
   let disposed = false;
   let opening = false;
@@ -7222,7 +7310,7 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
           return;
         }
         handle = opened;
-        output = binding.onData(opened, (bytes) => terminal.write(bytes));
+        output2 = binding.onData(opened, (bytes) => terminal.write(bytes));
         io = binding.registerIo(id, {
           readBuffer: (lines) => readScreen(terminal, lines),
           sendInput: (data) => {
@@ -7267,7 +7355,7 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
   observer.observe(host);
   const capturePrepare = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
   window.addEventListener("soksak:capture-prepare", capturePrepare);
-  const input = terminal.onData((data) => {
+  const input2 = terminal.onData((data) => {
     record({ kind: "xterm-data", data });
     routeXtermData(ime, write, data);
   });
@@ -7279,9 +7367,9 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
     window.removeEventListener("soksak:capture-prepare", capturePrepare);
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     stopTheme();
-    output?.dispose();
+    output2?.dispose();
     io?.dispose();
-    input.dispose();
+    input2.dispose();
     stopInputTrace();
     ime.dispose();
     if (handle) binding.detach(handle);
