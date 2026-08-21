@@ -6827,16 +6827,16 @@ function createTerminalSessionBinding(host, options) {
     args: { request: value }
   });
   const answer = (response) => {
-    if (response.ok !== true) throw new Error(typeof response.error === "string" ? response.error : "unit refused");
+    if (response.ok !== true) throw new Error(typeof response.error === "string" ? response.error : "sidecar refused request");
     return response.result?.data ?? {};
   };
   let ptyPromise = null;
-  const pty = () => ptyPromise ??= host.sidecar.open(options.ptyUnit);
+  const pty = () => ptyPromise ??= host.sidecar.open(options.ptySidecar);
   let providerPromise = null;
   const provider = () => providerPromise ??= (async () => {
     const key = options.checkpointKey ?? "terminal-checkpoint-key-v1";
     options.onOperation?.("opening-provider");
-    return host.sidecar.open(options.providerUnit, {
+    return host.sidecar.open(options.providerSidecar, {
       generatedSecretEnv: { [KEY_ENV]: { key, bytes: 32 } }
     });
   })();
@@ -8078,13 +8078,13 @@ function sessionKeyOf(viewContext) {
   const context = viewContext;
   return typeof context?.viewId === "string" ? context.viewId : "";
 }
-var PTY_UNIT = "pty";
-var RESTORE_UNIT = "terminal-vt100";
+var PTY_SIDECAR = "pty";
+var RESTORE_SIDECAR = "terminal-vt100";
 var CHECKPOINT_KEY = "terminal-checkpoint-key-v1";
 function ptyBinding(app) {
   const shared = createTerminalSessionBinding(app, {
-    ptyUnit: PTY_UNIT,
-    providerUnit: RESTORE_UNIT,
+    ptySidecar: PTY_SIDECAR,
+    providerSidecar: RESTORE_SIDECAR,
     checkpointKey: CHECKPOINT_KEY
   });
   return {

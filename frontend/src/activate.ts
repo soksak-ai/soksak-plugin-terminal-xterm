@@ -41,7 +41,7 @@ export interface TerminalHost {
   locale(): string;
   /** Which window this instance is in.
    *
-   *  It travels with a session so the unit can be asked to let go of one window's sessions when
+   *  It travels with a session so the PTY sidecar can release one window's sessions when
    *  that window goes, and so a screen mirror can tell two windows' panes apart. An empty label
    *  makes every session look like it belongs to the same nameless window, and closing one window
    *  would then reach every window's shells or none. */
@@ -58,8 +58,8 @@ export interface TerminalHost {
      *  The host parses OSC 7/133/633 out of it and answers getCwd and the command events from what
      *  it found. It decodes and decides nothing — what a command boundary means is decided here.
      *
-     *  The host sees no bytes otherwise: the shell is a unit this plugin drives, and the stream goes
-     *  from that unit to this code. Without this call every reading above stays empty on a pane that
+     *  The host sees no bytes otherwise: the shell is managed by a sidecar, and the stream goes
+     *  from that sidecar to this code. Without this call every reading above stays empty on a pane that
      *  is running perfectly, which reads as shell integration that is broken. */
     observe?(paneId: string, bytes: Uint8Array): void;
     /** Hand the host a way to read this screen and to type into it.
@@ -86,12 +86,12 @@ export interface TerminalHost {
       }) => void,
     ): { dispose(): void };
   };
-  /** The units this plugin declared, granted by the "sidecar" permission.
+  /** The sidecars this plugin declared, granted by the "sidecar" permission.
    *
-   *  A shell reaches this plugin through the unit its manifest declared and through nothing else.
+   *  A shell reaches this plugin through the sidecar its manifest declared and through nothing else.
    *  The host opens only a declared name, refuses one whose installed release implements a different
    *  contract, and passes requests through without reading them — so what a request means is this
-   *  plugin's business with its unit, and the host has no opinion about terminals. */
+   *  plugin's business with its sidecar, and the host has no opinion about terminals. */
   sidecar: {
     open(name: string, opts?: {
       secretEnv?: Record<string, string>;
@@ -103,7 +103,7 @@ export interface TerminalHost {
   };
 }
 
-/** One opened unit. What crosses it means whatever this plugin's contract with it says. */
+/** One opened sidecar channel. Its interface contract defines what crosses it. */
 export interface SidecarChannel {
   send(request: Record<string, unknown>): Promise<Record<string, unknown>>;
   stream(
@@ -143,14 +143,14 @@ export function activate(ctx: ActivateContext): void {
   >();
   const binding = ptyBinding(app);
 
-  // A window this plugin opened sessions under has gone, so the unit is told to let them go.
+  // A window this plugin opened sessions under has gone, so the PTY sidecar releases them.
   //
-  // Nothing else will: the plugin instance in that window died with it, and the unit holds shells
+  // Nothing else will: the plugin instance in that window died with it, and the sidecar holds shells
   // that outlive an application generation on purpose — which is exactly why they do not end by
   // themselves. Without this, every closed window leaves its shells running until the application
-  // quits and the unit is reaped.
+  // quits and the sidecar process ends.
   //
-  // This instance is in a window that survived. Which sessions belong to which window is the unit's
+  // This instance is in a window that survived. Session ownership by window is the sidecar's
   // record, keyed by the label the caller sent when it opened them.
   const windowGone = app.events?.on?.("window.gone", (payload) => {
     const windowLabel = payload.windowLabel;
@@ -542,22 +542,22 @@ function sessionKeyOf(viewContext: unknown): string {
   return typeof context?.viewId === "string" ? context.viewId : "";
 }
 
-/** The unit this plugin's manifest declares for shells. */
-const PTY_UNIT = "pty";
+/** The PTY sidecar binding declared by this plugin. */
+const PTY_SIDECAR = "pty";
 
-/** The unit that keeps a screen for a pane so a reopened one comes back warm.
+/** The provider sidecar that keeps a screen so a reopened pane returns warm.
  *
  *  A name, not an implementation: the manifest declares the interface
  *  `soksak-spec-sidecar-terminal`, and vt100, alacritty, ghostty and wezterm each implement it.
  *  Which one is installed under this name is the home's answer, never this plugin's. */
-const RESTORE_UNIT = "terminal-vt100";
+const RESTORE_SIDECAR = "terminal-vt100";
 const CHECKPOINT_KEY = "terminal-checkpoint-key-v1";
 
-/** Drives shells through the declared unit, and hands the host what it needs to observe them.
+/** Drives shells through the declared sidecar and provides host observation.
  *
- *  Every request below is opaque to the host: it opens the unit this manifest declared, checks that
+ *  Every request below is opaque to the host: it opens the sidecar this manifest declared, checks that
  *  what is installed implements the contract that was declared, and relays. What the requests mean
- *  is this plugin's contract with that unit.
+ *  is this plugin's contract with that sidecar.
  *
  *  The host is fed on purpose. It decodes OSC 7/133/633 out of the same bytes the screen gets, and
  *  the only reason it can is that this code hands them over — the shell is a separate process now,
@@ -565,8 +565,8 @@ const CHECKPOINT_KEY = "terminal-checkpoint-key-v1";
  */
 export function ptyBinding(app: TerminalHost): TerminalBinding {
   const shared = createTerminalSessionBinding(app, {
-    ptyUnit: PTY_UNIT,
-    providerUnit: RESTORE_UNIT,
+    ptySidecar: PTY_SIDECAR,
+    providerSidecar: RESTORE_SIDECAR,
     checkpointKey: CHECKPOINT_KEY,
   });
   return {
@@ -583,4 +583,4 @@ export function ptyBinding(app: TerminalHost): TerminalBinding {
   };
 }
 
-/** The unit this plugin declares for restoring a screen. */
+/** The provider sidecar this plugin declares for restoring a screen. */

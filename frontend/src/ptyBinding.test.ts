@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-/** What the concrete binding says to the unit, and what it does with what comes back.
+/** What the concrete binding sends to the PTY sidecar and how it handles responses.
  *
  *  terminal.test.ts drives a hand-written binding, so it proves how a screen uses one and nothing
  *  about the one the product ships. The three faults below all lived under that gap: a shell was
- *  running, the unit was healthy, and the pane was blank or frozen with nothing anywhere saying why.
+ *  running, the sidecar was healthy, and the pane was blank or frozen without a visible reason.
  *
- *  A fake unit stands in for the socket. It is not a mock of the binding — the binding under test is
+ *  A fake sidecar stands in for the socket. It is not a mock of the binding — the binding under test is
  *  the shipped one, and only what it talks to is replaced.
  */
 import { describe, expect, it } from "vitest";
@@ -14,8 +14,8 @@ import { ptyBinding, type SidecarChannel, type TerminalHost } from "./activate";
 
 type Sent = { command: string; request: Record<string, unknown> };
 
-/** A unit that records what it was asked and hands back a stream nobody has read yet. */
-function unit(startSeq = 0) {
+/** A sidecar that records requests and returns a stream before it has a reader. */
+function sidecar(startSeq = 0) {
   const sent: Sent[] = [];
   let deliver: ((bytes: Uint8Array) => void) | null = null;
   const answer = (data: Record<string, unknown> = {}) => ({
@@ -57,7 +57,7 @@ function unit(startSeq = 0) {
   return {
     binding: ptyBinding(host),
     sent,
-    /** The unit produces output. Nothing about the caller is assumed. */
+    /** The sidecar produces output. Nothing about the caller is assumed. */
     produce(text: string) {
       if (!deliver) throw new Error("nothing attached to the session");
       deliver(new TextEncoder().encode(text));
@@ -68,19 +68,19 @@ function unit(startSeq = 0) {
   };
 }
 
-describe("what the binding sends to the unit", () => {
+describe("what the binding sends to the PTY sidecar", () => {
   it("names the window the session was opened under", async () => {
     // It sent an empty label until 2026-08-20. Every window's sessions then belonged to the same
-    // nameless window, so closing one window asked the unit to let go of sessions it did not own —
+    // nameless window, so closing one window asked the sidecar to release sessions it did not own —
     // and a restored screen could not be told from another window's.
-    const it_ = unit();
+    const it_ = sidecar();
     await it_.binding.open("pane-1", 80, 24, "none");
 
     expect(it_.of("pty.open")[0].request.windowLabel).toBe("window-2");
   });
 
   it("binds a prepared observer before opening a fresh shell", async () => {
-    const it_ = unit();
+    const it_ = sidecar();
     await it_.binding.open("pane-1", 80, 24, "none", "observer-1");
     expect(it_.of("pty.open")[0].request).toMatchObject({
       paneId: "pane-1", windowLabel: "window-2", observerToken: "observer-1",
@@ -88,10 +88,10 @@ describe("what the binding sends to the unit", () => {
   });
 
   it("acks what it took, so the reader is never paused", async () => {
-    // The unit pauses its reader above a high watermark of unacked bytes and resumes at half of it.
+    // The sidecar pauses its reader above a high watermark of unacked bytes and resumes at half of it.
     // A client that never acks therefore receives about a megabyte and then stops: the shell is
     // alive and still writing, the pane is frozen, and no error is produced anywhere.
-    const it_ = unit();
+    const it_ = sidecar();
     await it_.binding.open("pane-1", 80, 24, "none");
 
     it_.produce("aaaa");
@@ -108,7 +108,7 @@ describe("what the binding sends to the unit", () => {
   });
 
   it("acks the absolute source sequence after reattaching", async () => {
-    const it_ = unit(900_000);
+    const it_ = sidecar(900_000);
     await it_.binding.open("pane-1", 80, 24, { leaseToken: "lease-1" });
 
     it_.produce("aaaa");
@@ -129,7 +129,7 @@ describe("what the binding does with what arrives", () => {
   it("keeps what came before a reader did", async () => {
     // The stream is attached inside open(), and a reader can only be registered once open() has
     // returned a handle. The shell's first prompt and a replayed tail land in that gap.
-    const it_ = unit();
+    const it_ = sidecar();
     const session = await it_.binding.open("pane-1", 80, 24, { leaseToken: "lease-1" });
 
     it_.produce("$ ");
@@ -144,7 +144,7 @@ describe("what the binding does with what arrives", () => {
   it("hands a later reader what comes next, not the screen it missed", async () => {
     // A second reader is a second view of a stream already in progress. Replaying the buffer into it
     // would draw the prompt twice on a screen that already has it.
-    const it_ = unit();
+    const it_ = sidecar();
     const session = await it_.binding.open("pane-1", 80, 24, "none");
     it_.produce("$ ");
 
