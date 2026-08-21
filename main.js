@@ -6743,6 +6743,226 @@ var WebkitImeAddon = class {
   }
 };
 
+// ../../../soksak-kits/soksak-kit-plugin-terminal/src/terminal-status-publication.ts
+function createTerminalStatusController(options) {
+  let status = {
+    phase: "initializing",
+    pluginId: options.pluginId,
+    engineId: options.engineId,
+    rendererId: options.rendererId,
+    rendererProfile: options.rendererProfile,
+    recoveryOutcome: "fresh",
+    fidelity: "unavailable",
+    failure: null
+  };
+  const listeners = /* @__PURE__ */ new Set();
+  const publish = () => {
+    options.root.dataset.terminalPhase = status.phase;
+    options.root.dataset.terminalRecovery = status.recoveryOutcome;
+    options.root.dataset.terminalFidelity = status.fidelity;
+    if (status.failure) options.root.dataset.terminalFailure = status.failure.code;
+    else delete options.root.dataset.terminalFailure;
+    const copy = { ...status, failure: status.failure ? { ...status.failure } : null };
+    options.root.dispatchEvent(new CustomEvent("soksak:terminal-status", {
+      bubbles: true,
+      detail: copy
+    }));
+    options.publish(copy);
+    for (const listener of listeners) listener(copy);
+    return copy;
+  };
+  publish();
+  return {
+    set(phase, next = {}) {
+      status = {
+        ...status,
+        phase,
+        ...next.recoveryOutcome ? { recoveryOutcome: next.recoveryOutcome } : {},
+        ...next.fidelity ? { fidelity: next.fidelity } : {},
+        ...next.failure !== void 0 ? { failure: next.failure } : {}
+      };
+      return publish();
+    },
+    current: () => ({ ...status, failure: status.failure ? { ...status.failure } : null }),
+    wait(phases, timeoutMs) {
+      const accepted = new Set(phases);
+      if (accepted.has(status.phase)) return Promise.resolve(this.current());
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          listeners.delete(onStatus);
+          reject(new Error(`terminal phase wait timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        const onStatus = (next) => {
+          if (!accepted.has(next.phase)) return;
+          clearTimeout(timer);
+          listeners.delete(onStatus);
+          resolve(next);
+        };
+        listeners.add(onStatus);
+      });
+    },
+    close: () => {
+      status = { ...status, phase: "closed" };
+      return publish();
+    }
+  };
+}
+
+// ../../../soksak-kits/soksak-kit-plugin-terminal/src/terminal-condition-wait.ts
+async function waitForTerminalConditions(options) {
+  const deadline = performance.now() + options.timeoutMs;
+  const remaining = () => Math.max(1, Math.ceil(deadline - performance.now()));
+  const text = options.contains ? await options.waitForText(options.contains, remaining()) : void 0;
+  const status = await options.status.wait([options.phase, "blocked"], remaining());
+  return text === void 0 ? status : { ...status, text };
+}
+
+// ../../../soksak-kits/soksak-kit-plugin-terminal/src/terminal-session-binding.ts
+var KEY_ENV = "SOKSAK_TERMINAL_CHECKPOINT_KEY";
+function createTerminalSessionBinding(host, options) {
+  let sequence = 0;
+  const request = (command, value) => ({
+    id: `terminal-${++sequence}`,
+    command,
+    args: { request: value }
+  });
+  const answer = (response) => {
+    if (response.ok !== true) throw new Error(typeof response.error === "string" ? response.error : "unit refused");
+    return response.result?.data ?? {};
+  };
+  let ptyPromise = null;
+  const pty = () => ptyPromise ??= host.sidecar.open(options.ptyUnit);
+  let providerPromise = null;
+  const provider = () => providerPromise ??= (async () => {
+    const key = options.checkpointKey ?? "terminal-checkpoint-key-v1";
+    options.onOperation?.("opening-provider");
+    return host.sidecar.open(options.providerUnit, {
+      generatedSecretEnv: { [KEY_ENV]: { key, bytes: 32 } }
+    });
+  })();
+  const streams = /* @__PURE__ */ new Map();
+  const readers = /* @__PURE__ */ new Map();
+  const pending = /* @__PURE__ */ new Map();
+  const taken = /* @__PURE__ */ new Map();
+  const encode = (text) => {
+    let binary = "";
+    for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+    return btoa(binary);
+  };
+  let loginShellPromise = null;
+  const loginShell = () => loginShellPromise ??= (async () => {
+    const executed = await host.commands?.execute?.("app.environment", {});
+    const data = executed && typeof executed === "object" && "data" in executed ? executed.data : executed;
+    const shell = data && typeof data === "object" ? data.loginShell : void 0;
+    if (typeof shell !== "string" || shell === "") {
+      throw new Error("app.environment returned no login shell");
+    }
+    return shell;
+  })();
+  return {
+    async open(paneId, cols, rows, replay, observerToken) {
+      const channel = await pty();
+      const shell = await loginShell();
+      const opened = answer(await channel.send(request("pty.open", {
+        paneId,
+        cols,
+        rows,
+        shell,
+        windowLabel: host.windowLabel(),
+        ...observerToken ? { observerToken } : {}
+      })));
+      const session = Number(opened.session);
+      const leaseToken = replay === "none" ? void 0 : replay.leaseToken;
+      const stream = await channel.stream(request(
+        leaseToken ? "pty.attachLease" : "pty.attach",
+        leaseToken ? { token: leaseToken } : { session }
+      ), { onBytes(bytes) {
+        const throughSeq = (taken.get(session) ?? 0) + bytes.length;
+        taken.set(session, throughSeq);
+        void channel.send(request("pty.ack", { session, throughSeq })).catch(() => {
+        });
+        const subscribed = readers.get(session);
+        if (subscribed?.size) subscribed.forEach((reader) => reader(bytes, throughSeq));
+        else pending.set(session, [...pending.get(session) ?? [], { bytes, throughSeq }]);
+        host.terminal?.observe?.(paneId, bytes);
+      } });
+      const attached = answer(stream.answer);
+      const startSeq = Number(attached.startSeq);
+      if (!Number.isSafeInteger(startSeq) || startSeq < 0) {
+        stream.close.dispose();
+        throw new Error("pty.attach returned invalid startSeq");
+      }
+      taken.set(session, startSeq);
+      streams.set(session, stream.close);
+      return session;
+    },
+    async write(session, data) {
+      answer(await (await pty()).send(request("pty.write", { session, dataB64: encode(data) })));
+    },
+    async resize(session, cols, rows) {
+      answer(await (await pty()).send(request("pty.resize", { session, cols, rows })));
+    },
+    async close(session) {
+      release(session);
+      answer(await (await pty()).send(request("pty.close", { session })));
+    },
+    detach(session) {
+      release(session);
+    },
+    onData(session, callback) {
+      const set = readers.get(session) ?? /* @__PURE__ */ new Set();
+      readers.set(session, set);
+      set.add(callback);
+      for (const item of pending.get(session) ?? []) callback(item.bytes, item.throughSeq);
+      pending.delete(session);
+      return { dispose: () => void readers.get(session)?.delete(callback) };
+    },
+    async paneAlive(paneId) {
+      return answer(await (await pty()).send(request("pty.pane", { paneId }))).held === true;
+    },
+    async providerRequest(value) {
+      const operation = typeof value.op === "string" ? value.op : "";
+      const commands = {
+        prepareSession: "terminal.prepareSession",
+        ensureSession: "terminal.ensureSession",
+        rehydrate: "terminal.rehydrate",
+        resize: "terminal.resize",
+        status: "terminal.status",
+        archived: "terminal.archived",
+        retire: "terminal.retire",
+        archive: "terminal.archive",
+        frame: "terminal.frame"
+      };
+      const command = commands[operation];
+      if (!command) throw new Error(`unknown terminal recovery operation ${operation}`);
+      const { op: _op, ...payload } = value;
+      const response = await (await provider()).send(request(command, { ...payload, window: host.windowLabel() }));
+      if (response.ok !== true) return { ok: false, code: response.result?.code ?? "FAILED", message: response.error ?? "recovery request failed" };
+      return { ok: true, code: "OK", data: answer(response) };
+    },
+    async diagnostics() {
+      const [ptyStatus, providerStatus] = await Promise.all([
+        (async () => answer(await (await pty()).send(request("pty.status", {}))))(),
+        (async () => {
+          const response = await this.providerRequest({ op: "status" });
+          return response.ok === true && response.data && typeof response.data === "object" ? response.data : response;
+        })()
+      ]);
+      return { pty: ptyStatus, provider: providerStatus };
+    },
+    async closeWindow(windowLabel) {
+      answer(await (await pty()).send(request("pty.closeWindow", { windowLabel })));
+    }
+  };
+  function release(session) {
+    streams.get(session)?.dispose();
+    streams.delete(session);
+    readers.delete(session);
+    pending.delete(session);
+    taken.delete(session);
+  }
+}
+
 // src/rendererBenchmark.ts
 var PRINTABLE_LINE_BYTES = 80;
 function createRendererPayload(mode, bytes) {
@@ -6797,6 +7017,7 @@ function nearestRank(sorted, quantile) {
 
 // src/terminal.ts
 function mountTerminal(host, id, binding, reportStatus = () => void 0) {
+  host.dataset.node = "terminal-root";
   injectStyles();
   const themeRoot = host.ownerDocument.documentElement;
   const terminal = new import_xterm2.Terminal({
@@ -6812,8 +7033,26 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
   const fit = new import_addon_fit.FitAddon();
   terminal.loadAddon(fit);
   terminal.open(host);
-  if (terminal.element) terminal.element.dataset.node = "screen";
-  if (terminal.textarea) terminal.textarea.dataset.node = "input";
+  if (terminal.element) {
+    terminal.element.dataset.node = "terminal-screen";
+    terminal.element.setAttribute("role", "log");
+    terminal.element.setAttribute("aria-live", "polite");
+  }
+  if (terminal.textarea) terminal.textarea.dataset.node = "terminal-input";
+  const statusNode = document.createElement("span");
+  statusNode.dataset.node = "terminal-restore-status";
+  statusNode.hidden = true;
+  host.append(statusNode);
+  const statusController = createTerminalStatusController({
+    root: statusNode,
+    pluginId: "soksak-plugin-terminal-xterm",
+    engineId: "vt100",
+    rendererId: "xterm",
+    rendererProfile: "web",
+    publish: (status) => reportStatus(
+      status.failure ? { code: status.failure.code, message: status.failure.message } : null
+    )
+  });
   host.dataset.terminalIme = "webkit";
   let handle = null;
   let output = null;
@@ -6860,7 +7099,36 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
       if (message) node.dataset.terminalRestoreError = message;
       else delete node.dataset.terminalRestoreError;
     }
-    reportStatus(state === "error" || state === "degraded" ? { code: `terminal.restore.${state}`, message } : null);
+    if (state === "checking") statusController.set("preparing-recovery");
+    else if (state === "buffered") statusController.set("applying-snapshot");
+    else if (state === "warm") {
+      statusController.set("live", {
+        recoveryOutcome: "continued",
+        fidelity: "complete",
+        failure: null
+      });
+    } else if (state === "fresh") {
+      statusController.set("live", {
+        recoveryOutcome: "fresh",
+        fidelity: "complete",
+        failure: null
+      });
+    } else if (state === "degraded") {
+      statusController.set("live", {
+        recoveryOutcome: "blocked",
+        fidelity: "unavailable",
+        failure: {
+          code: "PROVIDER_UNAVAILABLE",
+          message: message ?? "recovery provider unavailable"
+        }
+      });
+    } else if (state === "error") {
+      statusController.set("blocked", {
+        recoveryOutcome: "blocked",
+        fidelity: "unavailable",
+        failure: { code: "TERMINAL_OPEN_FAILED", message: message ?? "terminal open failed" }
+      });
+    }
   };
   const requireSidecarReply = (reply, operation) => {
     if (reply.ok !== true) {
@@ -6871,20 +7139,36 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
     const data = reply.data;
     return data && typeof data === "object" ? data : {};
   };
-  const paintSnapshot = async (paint) => {
+  const paintSnapshot = async (paint, archived = false) => {
     const decoded = atob(paint);
     const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
     await new Promise((resolve) => terminal.write(bytes, resolve));
-    setRestoreStatus("buffered");
+    if (archived) {
+      statusController.set("archived", {
+        recoveryOutcome: "archived",
+        fidelity: "complete",
+        failure: null
+      });
+    } else setRestoreStatus("buffered");
     const rendered = terminal.onRender(() => {
       rendered.dispose();
-      if (!disposed) setRestoreStatus("warm");
+      if (!disposed && !archived) setRestoreStatus("warm");
     });
     terminal.refresh(0, Math.max(0, terminal.rows - 1));
   };
   const restore = async () => {
     setRestoreStatus("checking");
-    if (!await binding.paneAlive(id)) return "none";
+    if (!await binding.paneAlive(id)) {
+      const archived = await binding.sidecarRequest({ op: "archived", pane: id });
+      if (archived.ok === true) {
+        const data = requireSidecarReply(archived, "archived");
+        if (typeof data.paint !== "string") throw new Error("archived returned no paint");
+        await paintSnapshot(data.paint, true);
+        return { kind: "archived" };
+      }
+      if (archived.code !== "NOT_FOUND") requireSidecarReply(archived, "archived");
+      return { kind: "fresh" };
+    }
     requireSidecarReply(await binding.sidecarRequest({
       op: "resize",
       pane: id,
@@ -6895,24 +7179,44 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
       await binding.sidecarRequest({ op: "rehydrate", pane: id }),
       "rehydrate"
     );
-    if (typeof restored.paint !== "string" || typeof restored.uptoSeq !== "number" || !Number.isSafeInteger(restored.uptoSeq) || restored.uptoSeq < 0) {
-      throw new Error("rehydrate returned an invalid paint or uptoSeq");
+    if (typeof restored.paint !== "string" || typeof restored.leaseToken !== "string" || restored.leaseToken.length === 0) {
+      throw new Error("rehydrate returned no snapshot lease");
     }
     await paintSnapshot(restored.paint);
-    return { fromSeq: restored.uptoSeq };
+    return { kind: "warm", leaseToken: restored.leaseToken };
+  };
+  const prepareFreshObserver = async () => {
+    const prepared = requireSidecarReply(await binding.sidecarRequest({
+      op: "prepareSession",
+      pane: id,
+      cols: terminal.cols || 80,
+      rows: terminal.rows || 24
+    }), "prepareSession");
+    if (typeof prepared.observerToken !== "string" || prepared.observerToken.length === 0) {
+      throw new Error("prepareSession returned no observerToken");
+    }
+    return prepared.observerToken;
   };
   const openWhenSized = () => {
     if (disposed || opening || handle !== null || !host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
     resizeNow();
     opening = true;
-    void restore().then((replay) => binding.open(
-      id,
-      terminal.cols || 80,
-      terminal.rows || 24,
-      replay
-    )).then(
-      (opened) => {
+    void restore().then(async (recovery) => {
+      if (recovery.kind === "archived") return null;
+      const observerToken = recovery.kind === "fresh" ? await prepareFreshObserver() : void 0;
+      const opened = await binding.open(
+        id,
+        terminal.cols || 80,
+        terminal.rows || 24,
+        recovery.kind === "warm" ? { leaseToken: recovery.leaseToken } : "none",
+        observerToken
+      );
+      return { opened, observerToken };
+    }).then(
+      (result) => {
         opening = false;
+        if (result === null) return;
+        const { opened, observerToken } = result;
         if (disposed) {
           void binding.close(opened);
           return;
@@ -6928,12 +7232,13 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
         for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
         resizeNow();
         terminal.refresh(0, Math.max(0, terminal.rows - 1));
-        if (host.dataset.terminalRestore === "checking") {
+        if (observerToken) {
           void binding.sidecarRequest({
             op: "ensureSession",
             pane: id,
             cols: terminal.cols || 80,
-            rows: terminal.rows || 24
+            rows: terminal.rows || 24,
+            observerToken
           }).then(
             (reply) => {
               requireSidecarReply(reply, "ensureSession");
@@ -6979,7 +7284,8 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
     input.dispose();
     stopInputTrace();
     ime.dispose();
-    if (handle) void binding.close(handle);
+    if (handle) binding.detach(handle);
+    statusController.close();
     terminal.dispose();
     delete host.dataset.terminalIme;
     for (const node of [host, terminal.element]) {
@@ -7033,6 +7339,28 @@ function mountTerminal(host, id, binding, reportStatus = () => void 0) {
         rows: terminal.rows,
         ...summarizeRendererSamples(samplesMs, payload.byteLength)
       };
+    },
+    status: () => statusController.current(),
+    statusController,
+    writable: () => handle !== null && statusController.current().phase === "live",
+    size: () => ({ cols: terminal.cols, rows: terminal.rows }),
+    wait: (phases, timeoutMs) => statusController.wait(phases, timeoutMs),
+    waitForText: (contains, timeoutMs) => {
+      const current = () => readScreen(terminal);
+      if (current().includes(contains)) return Promise.resolve(current());
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          rendered.dispose();
+          reject(new Error(`terminal text wait timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        const rendered = terminal.onRender(() => {
+          const text = current();
+          if (!text.includes(contains)) return;
+          clearTimeout(timer);
+          rendered.dispose();
+          resolve(text);
+        });
+      });
     }
   };
 }
@@ -7066,11 +7394,32 @@ var plugin_default = {
     "ui:statusbar",
     "commands",
     "programs",
-    "pty",
+    "sidecar",
+    "secrets",
     "terminal"
+  ],
+  implements: [
+    { id: "soksak-spec-plugin-terminal", version: "0.0.1" }
   ],
   contributes: {
     commands: [
+      {
+        name: "status",
+        title: { en: "Terminal status", ko: "\uD130\uBBF8\uB110 \uC0C1\uD0DC" }
+      },
+      {
+        name: "wait",
+        title: { en: "Wait for terminal phase", ko: "\uD130\uBBF8\uB110 \uB2E8\uACC4 \uB300\uAE30" }
+      },
+      { name: "archive", title: { en: "Archive terminal state", ko: "\uD130\uBBF8\uB110 \uC0C1\uD0DC \uBCF4\uAD00" } },
+      {
+        name: "focus",
+        title: { en: "Focus terminal", ko: "\uD130\uBBF8\uB110 \uD3EC\uCEE4\uC2A4" }
+      },
+      {
+        name: "recovery-status",
+        title: { en: "Terminal recovery status", ko: "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0C1\uD0DC" }
+      },
       {
         name: "clear",
         title: {
@@ -7118,11 +7467,23 @@ var plugin_default = {
     ],
     nodes: [
       {
-        id: "screen",
+        id: "terminal-root",
+        description: { en: "The terminal root", ko: "\uD130\uBBF8\uB110 \uB8E8\uD2B8" }
+      },
+      {
+        id: "terminal-screen",
         description: {
           en: "The terminal screen",
           ko: "\uD130\uBBF8\uB110 \uD654\uBA74"
         }
+      },
+      {
+        id: "terminal-input",
+        description: { en: "The terminal input", ko: "\uD130\uBBF8\uB110 \uC785\uB825" }
+      },
+      {
+        id: "terminal-restore-status",
+        description: { en: "The terminal recovery state", ko: "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0C1\uD0DC" }
       }
     ],
     programs: [
@@ -7153,7 +7514,23 @@ var plugin_default = {
         ]
       }
     ]
-  }
+  },
+  sidecars: [
+    {
+      name: "pty",
+      interface: {
+        id: "soksak-spec-sidecar-pty",
+        version: "0.0.1"
+      }
+    },
+    {
+      name: "terminal-vt100",
+      interface: {
+        id: "soksak-spec-sidecar-terminal",
+        version: "0.0.1"
+      }
+    }
+  ]
 };
 
 // src/manifest.ts
@@ -7172,6 +7549,30 @@ var MESSAGES = {
   "terminal.noSession": {
     en: "This pane holds no terminal session yet",
     ko: "\uC774 \uD310\uC5D0\uB294 \uC544\uC9C1 \uD130\uBBF8\uB110 \uC138\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.status.description": {
+    en: "Return this terminal's plugin and recovery state.",
+    ko: "\uC774 \uD130\uBBF8\uB110\uC758 \uD50C\uB7EC\uADF8\uC778 \uBC0F \uBCF5\uC6D0 \uC0C1\uD0DC\uB97C \uBC18\uD658\uD569\uB2C8\uB2E4."
+  },
+  "terminal.status.answer": {
+    en: "Returned terminal status",
+    ko: "\uD130\uBBF8\uB110 \uC0C1\uD0DC\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.recovery.description": {
+    en: "Return this terminal's recovery phase and fidelity.",
+    ko: "\uC774 \uD130\uBBF8\uB110\uC758 \uBCF5\uC6D0 \uB2E8\uACC4\uC640 \uCDA9\uC2E4\uB3C4\uB97C \uBC18\uD658\uD569\uB2C8\uB2E4."
+  },
+  "terminal.recovery.answer": {
+    en: "Returned terminal recovery status",
+    ko: "\uD130\uBBF8\uB110 \uBCF5\uC6D0 \uC0C1\uD0DC\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4"
+  },
+  "terminal.focus.description": {
+    en: "Focus this terminal's input.",
+    ko: "\uC774 \uD130\uBBF8\uB110\uC758 \uC785\uB825\uC5D0 \uD3EC\uCEE4\uC2A4\uB97C \uB461\uB2C8\uB2E4."
+  },
+  "terminal.focus.answer": {
+    en: "Requested terminal focus",
+    ko: "\uD130\uBBF8\uB110 \uD3EC\uCEE4\uC2A4\uB97C \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4"
   },
   "terminal.clear.description": {
     en: "Clear this terminal's screen. The shell keeps running.",
@@ -7341,10 +7742,13 @@ function activate(ctx) {
     returns: "{ cleared }",
     message: () => sentence("terminal.cleared"),
     handler: () => {
+      let cleared = 0;
       for (const screen of screens.values()) {
+        if (!screen.screen.writable()) continue;
         screen.container.dispatchEvent(new CustomEvent("soksak:terminal-clear"));
+        cleared += 1;
       }
-      return { cleared: screens.size };
+      return { cleared };
     }
   });
   const isRefusal = (v) => !!v && typeof v === "object" && v.ok === false;
@@ -7381,6 +7785,95 @@ function activate(ctx) {
     type: "string",
     description: sentence("terminal.param.view")
   };
+  register(app, ctx, "status", {
+    description: sentence("terminal.status.description"),
+    params: { view: viewParam },
+    returns: "{ view, phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
+    message: () => sentence("terminal.status.answer"),
+    handler: async (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      return {
+        view: found.key,
+        ...found.screen.status(),
+        ...found.screen.size(),
+        source: await binding.diagnostics()
+      };
+    }
+  });
+  register(app, ctx, "archive", {
+    description: sentence("terminal.recovery.description"),
+    params: { view: viewParam },
+    returns: "{ archived, generation, uptoSeq, bytes }",
+    message: () => sentence("terminal.recovery.answer"),
+    handler: async (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const response = await binding.sidecarRequest({ op: "archive", pane: found.key });
+      return response.ok === true ? { archived: true, ...response.data } : response;
+    }
+  });
+  register(app, ctx, "wait", {
+    description: sentence("terminal.status.description"),
+    params: {
+      phase: {
+        type: "string",
+        required: true,
+        enum: ["initializing", "preparing-recovery", "applying-snapshot", "attaching-live-stream", "live", "archived", "degraded-tail", "blocked", "closed"],
+        description: sentence("terminal.status.description")
+      },
+      timeoutMs: { type: "number", default: 1e4, description: sentence("terminal.status.description") },
+      contains: { type: "string", description: sentence("terminal.read.description") },
+      view: viewParam
+    },
+    returns: "{ phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
+    message: () => sentence("terminal.status.answer"),
+    handler: async (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const phase = String(params.phase);
+      const timeoutMs = typeof params.timeoutMs === "number" ? params.timeoutMs : 1e4;
+      return {
+        ...await waitForTerminalConditions({
+          status: found.screen.statusController,
+          phase,
+          contains: typeof params.contains === "string" && params.contains !== "" ? params.contains : void 0,
+          timeoutMs,
+          waitForText: found.screen.waitForText
+        }),
+        ...found.screen.size()
+      };
+    }
+  });
+  register(app, ctx, "recovery-status", {
+    description: sentence("terminal.recovery.description"),
+    params: { view: viewParam },
+    returns: "{ view, phase, recoveryOutcome, fidelity, failure }",
+    message: () => sentence("terminal.recovery.answer"),
+    handler: (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const status = found.screen.status();
+      return {
+        view: found.key,
+        phase: status.phase,
+        recoveryOutcome: status.recoveryOutcome,
+        fidelity: status.fidelity,
+        failure: status.failure
+      };
+    }
+  });
+  register(app, ctx, "focus", {
+    description: sentence("terminal.focus.description"),
+    params: { view: viewParam },
+    returns: "{ view, focused }",
+    message: () => sentence("terminal.focus.answer"),
+    handler: (params, context) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      return { view: found.key, focused: found.screen.focus() };
+    }
+  });
   register(app, ctx, "send", {
     description: sentence("terminal.send.description"),
     params: { data: { type: "string", description: sentence("terminal.param.data"), required: true }, view: viewParam },
@@ -7391,6 +7884,7 @@ function activate(ctx) {
       const data = typeof params.data === "string" ? params.data : "";
       const found = target(params, context);
       if (isRefusal(found)) return found;
+      if (!found.screen.writable()) return { sent: false, view: found.key };
       found.screen.send(data);
       return { sent: data.length, view: found.key };
     }
@@ -7409,6 +7903,7 @@ function activate(ctx) {
     handler: (params, context) => {
       const found = target(params, context);
       if (isRefusal(found)) return found;
+      if (!found.screen.writable()) return { sent: false, view: found.key };
       const lines = typeof params.lines === "number" ? params.lines : void 0;
       return { view: found.key, text: found.screen.read(lines) };
     }
@@ -7497,121 +7992,23 @@ function sessionKeyOf(viewContext) {
 }
 var PTY_UNIT = "pty";
 var RESTORE_UNIT = "terminal-vt100";
-var PTY = {
-  open: "pty.open",
-  write: "pty.write",
-  resize: "pty.resize",
-  close: "pty.close",
-  pane: "pty.pane",
-  ack: "pty.ack",
-  closeWindow: "pty.closeWindow",
-  attach: "pty.attach"
-};
-var requestSeq = 0;
-function unitRequest(command, request) {
-  requestSeq += 1;
-  return { id: `t${requestSeq}`, command, args: { request } };
-}
-function answerOf(response) {
-  if (response.ok !== true) {
-    throw new Error(typeof response.error === "string" ? response.error : "the unit refused");
-  }
-  const result = response.result;
-  return result?.data ?? {};
-}
-function encode(text) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
+var CHECKPOINT_KEY = "terminal-checkpoint-key-v1";
 function ptyBinding(app) {
-  let channel = null;
-  const unit = () => channel ??= app.sidecar.open(PTY_UNIT);
-  const streams = /* @__PURE__ */ new Map();
-  const readers = /* @__PURE__ */ new Map();
-  const pending = /* @__PURE__ */ new Map();
-  const taken = /* @__PURE__ */ new Map();
+  const shared = createTerminalSessionBinding(app, {
+    ptyUnit: PTY_UNIT,
+    providerUnit: RESTORE_UNIT,
+    checkpointKey: CHECKPOINT_KEY
+  });
   return {
-    async open(paneId, cols, rows, replay) {
-      const opened = answerOf(
-        await (await unit()).send(
-          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: app.windowLabel() })
-        )
-      );
-      const id = Number(opened.session);
-      currentSessionId = id;
-      const fromSeq = replay === "none" ? void 0 : replay.fromSeq;
-      const { close } = await (await unit()).stream(
-        unitRequest(PTY.attach, fromSeq === void 0 ? { session: id } : { session: id, fromSeq }),
-        {
-          onBytes: (bytes) => {
-            const soFar = (taken.get(id) ?? 0) + bytes.length;
-            taken.set(id, soFar);
-            void (async () => {
-              try {
-                answerOf(
-                  await (await unit()).send(unitRequest(PTY.ack, { session: id, bytes: soFar }))
-                );
-              } catch {
-              }
-            })();
-            const subscribed = readers.get(id);
-            if (subscribed && subscribed.size > 0) {
-              subscribed.forEach((reader) => reader(bytes));
-            } else {
-              const waiting = pending.get(id) ?? [];
-              waiting.push(bytes);
-              pending.set(id, waiting);
-            }
-            app.terminal?.observe?.(paneId, bytes);
-          }
-        }
-      );
-      streams.set(id, close);
-      return id;
+    ...shared,
+    async open(paneId, cols, rows, replay, observerToken) {
+      const session = await shared.open(paneId, cols, rows, replay, observerToken);
+      currentSessionId = session;
+      return session;
     },
-    async write(id, data) {
-      answerOf(await (await unit()).send(unitRequest(PTY.write, { session: id, dataB64: encode(data) })));
-    },
-    async resize(id, cols, rows) {
-      answerOf(await (await unit()).send(unitRequest(PTY.resize, { session: id, cols, rows })));
-    },
-    async close(id) {
-      streams.get(id)?.dispose();
-      streams.delete(id);
-      readers.delete(id);
-      pending.delete(id);
-      taken.delete(id);
-      answerOf(await (await unit()).send(unitRequest(PTY.close, { session: id })));
-    },
-    onData(id, callback) {
-      let set = readers.get(id);
-      if (!set) {
-        set = /* @__PURE__ */ new Set();
-        readers.set(id, set);
-      }
-      set.add(callback);
-      const waiting = pending.get(id);
-      if (waiting && waiting.length > 0) {
-        pending.delete(id);
-        for (const bytes of waiting) callback(bytes);
-      }
-      return { dispose: () => void readers.get(id)?.delete(callback) };
-    },
+    sidecarRequest: shared.providerRequest,
     registerIo: (paneId, io) => app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {
     } },
-    async paneAlive(paneId) {
-      const held = answerOf(await (await unit()).send(unitRequest(PTY.pane, { paneId })));
-      return held.held === true;
-    },
-    async sidecarRequest(request) {
-      const restore = await app.sidecar.open(RESTORE_UNIT);
-      return restore.send(request);
-    },
-    async closeWindow(windowLabel) {
-      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
-    },
     async traceInput() {
     }
   };

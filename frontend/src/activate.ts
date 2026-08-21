@@ -1,5 +1,9 @@
 import { sentence, t } from "./i18n";
 import { mountTerminal, type TerminalBinding, type TerminalScreen } from "./terminal";
+import {
+  createTerminalSessionBinding, waitForTerminalConditions,
+} from "@soksak/soksak-kit-plugin-terminal";
+import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
 
 // The plugin's entry. The host calls activate(ctx); this registers the view and
 // the commands the manifest declares. The host registers nothing on the
@@ -89,7 +93,13 @@ export interface TerminalHost {
    *  contract, and passes requests through without reading them — so what a request means is this
    *  plugin's business with its unit, and the host has no opinion about terminals. */
   sidecar: {
-    open(name: string): Promise<SidecarChannel>;
+    open(name: string, opts?: {
+      secretEnv?: Record<string, string>;
+      generatedSecretEnv?: Record<string, { key: string; bytes: number }>;
+    }): Promise<SidecarChannel>;
+  };
+  secrets?: {
+    generate(key: string, bytes: number): Promise<{ created: boolean }>;
   };
 }
 
@@ -230,10 +240,13 @@ export function activate(ctx: ActivateContext): void {
     returns: "{ cleared }",
     message: () => sentence("terminal.cleared"),
     handler: () => {
+      let cleared = 0;
       for (const screen of screens.values()) {
+        if (!screen.screen.writable()) continue;
         screen.container.dispatchEvent(new CustomEvent("soksak:terminal-clear"));
+        cleared += 1;
       }
-      return { cleared: screens.size };
+      return { cleared };
     },
   });
 
@@ -290,6 +303,96 @@ export function activate(ctx: ActivateContext): void {
     description: sentence("terminal.param.view"),
   };
 
+  register(app, ctx, "status", {
+    description: sentence("terminal.status.description"),
+    params: { view: viewParam },
+    returns: "{ view, phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
+    message: () => sentence("terminal.status.answer"),
+    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      return {
+        view: found.key, ...found.screen.status(), ...found.screen.size(),
+        source: await binding.diagnostics(),
+      };
+    },
+  });
+
+  register(app, ctx, "archive", {
+    description: sentence("terminal.recovery.description"),
+    params: { view: viewParam },
+    returns: "{ archived, generation, uptoSeq, bytes }",
+    message: () => sentence("terminal.recovery.answer"),
+    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const response = await binding.sidecarRequest({ op: "archive", pane: found.key });
+      return response.ok === true ? { archived: true, ...(response.data as object) } : response;
+    },
+  });
+
+  register(app, ctx, "wait", {
+    description: sentence("terminal.status.description"),
+    params: {
+      phase: {
+        type: "string", required: true,
+        enum: ["initializing", "preparing-recovery", "applying-snapshot", "attaching-live-stream", "live", "archived", "degraded-tail", "blocked", "closed"],
+        description: sentence("terminal.status.description"),
+      },
+      timeoutMs: { type: "number", default: 10000, description: sentence("terminal.status.description") },
+      contains: { type: "string", description: sentence("terminal.read.description") },
+      view: viewParam,
+    },
+    returns: "{ phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
+    message: () => sentence("terminal.status.answer"),
+    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const phase = String(params.phase) as TerminalPluginPublicStatus["phase"];
+      const timeoutMs = typeof params.timeoutMs === "number" ? params.timeoutMs : 10000;
+      return {
+        ...await waitForTerminalConditions({
+          status: found.screen.statusController, phase,
+          contains: typeof params.contains === "string" && params.contains !== ""
+            ? params.contains : undefined,
+          timeoutMs, waitForText: found.screen.waitForText,
+        }),
+        ...found.screen.size(),
+      };
+    },
+  });
+
+  register(app, ctx, "recovery-status", {
+    description: sentence("terminal.recovery.description"),
+    params: { view: viewParam },
+    returns: "{ view, phase, recoveryOutcome, fidelity, failure }",
+    message: () => sentence("terminal.recovery.answer"),
+    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      const status = found.screen.status();
+      return {
+        view: found.key,
+        phase: status.phase,
+        recoveryOutcome: status.recoveryOutcome,
+        fidelity: status.fidelity,
+        failure: status.failure,
+      };
+    },
+  });
+
+  register(app, ctx, "focus", {
+    description: sentence("terminal.focus.description"),
+    params: { view: viewParam },
+    returns: "{ view, focused }",
+    message: () => sentence("terminal.focus.answer"),
+    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
+      const found = target(params, context);
+      if (isRefusal(found)) return found;
+      return { view: found.key, focused: found.screen.focus() };
+    },
+  });
+
   register(app, ctx, "send", {
     description: sentence("terminal.send.description"),
     params: { data: { type: "string", description: sentence("terminal.param.data"), required: true }, view: viewParam },
@@ -300,6 +403,7 @@ export function activate(ctx: ActivateContext): void {
       const data = typeof params.data === "string" ? params.data : "";
       const found = target(params, context);
       if (isRefusal(found)) return found;
+      if (!found.screen.writable()) return { sent: false, view: found.key };
       found.screen.send(data);
       return { sent: data.length, view: found.key };
     },
@@ -320,6 +424,7 @@ export function activate(ctx: ActivateContext): void {
     handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
       const found = target(params, context);
       if (isRefusal(found)) return found;
+      if (!found.screen.writable()) return { sent: false, view: found.key };
       const lines = typeof params.lines === "number" ? params.lines : undefined;
       return { view: found.key, text: found.screen.read(lines) };
     },
@@ -446,44 +551,7 @@ const PTY_UNIT = "pty";
  *  `soksak-spec-sidecar-terminal`, and vt100, alacritty, ghostty and wezterm each implement it.
  *  Which one is installed under this name is the home's answer, never this plugin's. */
 const RESTORE_UNIT = "terminal-vt100";
-
-/** The commands on that unit's own socket, as its contract names them. */
-const PTY = {
-  open: "pty.open",
-  write: "pty.write",
-  resize: "pty.resize",
-  close: "pty.close",
-  pane: "pty.pane",
-  ack: "pty.ack",
-  closeWindow: "pty.closeWindow",
-  attach: "pty.attach",
-} as const;
-
-/** One request in the envelope the unit answers on. The id is this side's and it is echoed back. */
-let requestSeq = 0;
-function unitRequest(command: string, request: Record<string, unknown>): Record<string, unknown> {
-  requestSeq += 1;
-  return { id: `t${requestSeq}`, command, args: { request } };
-}
-
-/** The data out of an answer, or a thrown refusal.
- *
- *  A refusal is thrown rather than returned as an empty result, because a caller that cannot tell
- *  the two apart draws an empty terminal and concludes the shell produced nothing. */
-function answerOf(response: Record<string, unknown>): Record<string, unknown> {
-  if (response.ok !== true) {
-    throw new Error(typeof response.error === "string" ? response.error : "the unit refused");
-  }
-  const result = response.result as { data?: unknown } | undefined;
-  return (result?.data ?? {}) as Record<string, unknown>;
-}
-
-function encode(text: string): string {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
+const CHECKPOINT_KEY = "terminal-checkpoint-key-v1";
 
 /** Drives shells through the declared unit, and hands the host what it needs to observe them.
  *
@@ -496,122 +564,22 @@ function encode(text: string): string {
  *  and nothing passes through the application on the way.
  */
 export function ptyBinding(app: TerminalHost): TerminalBinding {
-  let channel: Promise<SidecarChannel> | null = null;
-  const unit = () => (channel ??= app.sidecar.open(PTY_UNIT));
-  // One stream per session, kept so closing a pane ends its stream and no other's.
-  const streams = new Map<number, { dispose(): void }>();
-  const readers = new Map<number, Set<(bytes: Uint8Array) => void>>();
-  // What arrived before anybody subscribed.
-  //
-  // The stream is opened inside open() and a reader arrives after it returns, so the shell's first
-  // prompt and a replayed tail land in between. Dropped, a restored screen comes back blank and a
-  // fresh one shows nothing until the first keystroke — both read as a terminal that did not start.
-  const pending = new Map<number, Uint8Array[]>();
-  // How much of each session's output has been taken. The unit pauses its reader above a high
-  // watermark and resumes at a low one, so a client that never acks stops receiving after about a
-  // megabyte — the shell is alive, the pane is frozen, and nothing says why.
-  const taken = new Map<number, number>();
-
+  const shared = createTerminalSessionBinding(app, {
+    ptyUnit: PTY_UNIT,
+    providerUnit: RESTORE_UNIT,
+    checkpointKey: CHECKPOINT_KEY,
+  });
   return {
-    async open(paneId, cols, rows, replay) {
-      const opened = answerOf(
-        await (await unit()).send(
-          unitRequest(PTY.open, { paneId, cols, rows, windowLabel: app.windowLabel() }),
-        ),
-      );
-      const id = Number(opened.session);
-      currentSessionId = id;
-
-      // Where to resume from. A session with no history starts at the live edge rather than
-      // replaying a ring this screen has drawn none of.
-      const fromSeq = replay === "none" ? undefined : replay.fromSeq;
-      const { close } = await (await unit()).stream(
-        unitRequest(PTY.attach, fromSeq === undefined ? { session: id } : { session: id, fromSeq }),
-        {
-          onBytes: (bytes) => {
-            // Taken, and said so. The unit pauses its reader on unacked bytes rather than on how
-            // much it holds, so this is what keeps output coming at all.
-            const soFar = (taken.get(id) ?? 0) + bytes.length;
-            taken.set(id, soFar);
-            void (async () => {
-              try {
-                answerOf(
-                  await (await unit()).send(unitRequest(PTY.ack, { session: id, bytes: soFar })),
-                );
-              } catch {
-                // A refused ack is not a reason to drop the bytes that arrived. The next one carries
-                // the same running total, so one that failed costs nothing.
-              }
-            })();
-
-            const subscribed = readers.get(id);
-            if (subscribed && subscribed.size > 0) {
-              subscribed.forEach((reader) => reader(bytes));
-            } else {
-              // Held rather than dropped. A reader arrives after open() returns.
-              const waiting = pending.get(id) ?? [];
-              waiting.push(bytes);
-              pending.set(id, waiting);
-            }
-            // The host's decoder gets the same bytes the screen does, keyed by the pane. Without
-            // this the working directory and the command events stay empty on a running shell.
-            app.terminal?.observe?.(paneId, bytes);
-          },
-        },
-      );
-      streams.set(id, close);
-      return id;
+    ...shared,
+    async open(paneId, cols, rows, replay, observerToken) {
+      const session = await shared.open(paneId, cols, rows, replay, observerToken);
+      currentSessionId = session;
+      return session;
     },
-    async write(id, data) {
-      answerOf(await (await unit()).send(unitRequest(PTY.write, { session: id, dataB64: encode(data) })));
-    },
-    async resize(id, cols, rows) {
-      answerOf(await (await unit()).send(unitRequest(PTY.resize, { session: id, cols, rows })));
-    },
-    async close(id) {
-      streams.get(id)?.dispose();
-      streams.delete(id);
-      readers.delete(id);
-      pending.delete(id);
-      taken.delete(id);
-      answerOf(await (await unit()).send(unitRequest(PTY.close, { session: id })));
-    },
-    onData(id, callback) {
-      let set = readers.get(id);
-      if (!set) {
-        set = new Set();
-        readers.set(id, set);
-      }
-      set.add(callback);
-      // Whatever arrived before this reader existed, in the order it arrived. The first subscriber
-      // takes it; a second one is a second view of a stream already in progress and gets what comes
-      // next, which is what it would have got had it subscribed a moment later anyway.
-      const waiting = pending.get(id);
-      if (waiting && waiting.length > 0) {
-        pending.delete(id);
-        for (const bytes of waiting) callback(bytes);
-      }
-      return { dispose: () => void readers.get(id)?.delete(callback) };
-    },
+    sidecarRequest: shared.providerRequest,
     registerIo: (paneId, io) =>
       app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {} },
-    async paneAlive(paneId) {
-      const held = answerOf(await (await unit()).send(unitRequest(PTY.pane, { paneId })));
-      return held.held === true;
-    },
-    async sidecarRequest(request) {
-      // The restore unit, which is a different declaration and a different contract. Relayed the
-      // same way and read no more here than the host reads it.
-      const restore = await app.sidecar.open(RESTORE_UNIT);
-      return restore.send(request);
-    },
-    async closeWindow(windowLabel) {
-      answerOf(await (await unit()).send(unitRequest(PTY.closeWindow, { windowLabel })));
-    },
-    async traceInput() {
-      // The host records input traces when it is asked to. Nothing here reads
-      // the answer, and a failed trace must not fail a keystroke.
-    },
+    async traceInput() {},
   };
 }
 

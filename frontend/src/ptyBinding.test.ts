@@ -15,7 +15,7 @@ import { ptyBinding, type SidecarChannel, type TerminalHost } from "./activate";
 type Sent = { command: string; request: Record<string, unknown> };
 
 /** A unit that records what it was asked and hands back a stream nobody has read yet. */
-function unit() {
+function unit(startSeq = 0) {
   const sent: Sent[] = [];
   let deliver: ((bytes: Uint8Array) => void) | null = null;
   const answer = (data: Record<string, unknown> = {}) => ({
@@ -35,14 +35,20 @@ function unit() {
     async stream(request, handlers) {
       record(request);
       deliver = handlers.onBytes;
-      return { answer: answer(), close: { dispose() {} } };
+      return {
+        answer: answer({ session: 7, mode: "resumed", startSeq }),
+        close: { dispose() {} },
+      };
     },
     async close() {},
   };
 
   const host: TerminalHost = {
     ui: { registerView: () => ({ dispose() {} }) },
-    commands: { register: () => ({ dispose() {} }), execute: async () => ({ ok: true }) },
+    commands: {
+      register: () => ({ dispose() {} }),
+      execute: async () => ({ data: { loginShell: "/bin/zsh" } }),
+    },
     locale: () => "en",
     windowLabel: () => "window-2",
     sidecar: { open: async () => channel },
@@ -73,6 +79,14 @@ describe("what the binding sends to the unit", () => {
     expect(it_.of("pty.open")[0].request.windowLabel).toBe("window-2");
   });
 
+  it("binds a prepared observer before opening a fresh shell", async () => {
+    const it_ = unit();
+    await it_.binding.open("pane-1", 80, 24, "none", "observer-1");
+    expect(it_.of("pty.open")[0].request).toMatchObject({
+      paneId: "pane-1", windowLabel: "window-2", observerToken: "observer-1",
+    });
+  });
+
   it("acks what it took, so the reader is never paused", async () => {
     // The unit pauses its reader above a high watermark of unacked bytes and resumes at half of it.
     // A client that never acks therefore receives about a megabyte and then stops: the shell is
@@ -88,8 +102,25 @@ describe("what the binding sends to the unit", () => {
     // A running total, not a delta: one ack that never arrived would otherwise hold the reader back
     // by its own size forever.
     expect(it_.of("pty.ack").map((one) => one.request)).toEqual([
-      { session: 7, bytes: 4 },
-      { session: 7, bytes: 6 },
+      { session: 7, throughSeq: 4 },
+      { session: 7, throughSeq: 6 },
+    ]);
+  });
+
+  it("acks the absolute source sequence after reattaching", async () => {
+    const it_ = unit(900_000);
+    await it_.binding.open("pane-1", 80, 24, { leaseToken: "lease-1" });
+
+    it_.produce("aaaa");
+    it_.produce("bb");
+    await Promise.resolve();
+
+    expect(it_.of("pty.attachLease")[0].request).toEqual({ token: "lease-1" });
+    await Promise.resolve();
+
+    expect(it_.of("pty.ack").map((one) => one.request)).toEqual([
+      { session: 7, throughSeq: 900_004 },
+      { session: 7, throughSeq: 900_006 },
     ]);
   });
 });
@@ -99,7 +130,7 @@ describe("what the binding does with what arrives", () => {
     // The stream is attached inside open(), and a reader can only be registered once open() has
     // returned a handle. The shell's first prompt and a replayed tail land in that gap.
     const it_ = unit();
-    const session = await it_.binding.open("pane-1", 80, 24, { fromSeq: 0 });
+    const session = await it_.binding.open("pane-1", 80, 24, { leaseToken: "lease-1" });
 
     it_.produce("$ ");
     it_.produce("echo");

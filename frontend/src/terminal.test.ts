@@ -52,12 +52,20 @@ function binding(overrides: Partial<TerminalBinding> = {}): TerminalBinding {
     write: vi.fn(async () => {}),
     resize: vi.fn(async () => {}),
     close: vi.fn(async () => {}),
+    detach: vi.fn(),
     closeWindow: vi.fn(async () => {}),
     onData: vi.fn(() => ({ dispose: () => undefined })),
     registerIo: vi.fn(() => ({ dispose: () => undefined })),
     traceInput: vi.fn(async () => {}),
     paneAlive: vi.fn(async () => false),
-    sidecarRequest: vi.fn(async () => ({ ok: true, data: {} })),
+    sidecarRequest: vi.fn(async (request: Record<string, unknown>) =>
+      request.op === "archived"
+        ? { ok: false, code: "NOT_FOUND", message: "no checkpoint" }
+        : {
+            ok: true,
+            data: request.op === "prepareSession" ? { observerToken: "observer-test" } : {},
+          }),
+    diagnostics: vi.fn(async () => ({ pty: {}, provider: {} })),
     ...overrides,
   };
 }
@@ -89,7 +97,7 @@ describe("a mounted terminal", () => {
       if (request.op === "rehydrate") {
         return {
           ok: true,
-          data: { paint: btoa("__warm_screen__"), uptoSeq: 37, altActive: false },
+          data: { paint: btoa("__warm_screen__"), uptoSeq: 37, altActive: false, leaseToken: "lease-37" },
         };
       }
       return { ok: true, data: {} };
@@ -99,12 +107,12 @@ describe("a mounted terminal", () => {
     const screen = mountTerminal(host, "pan-warm", warm);
     await opened;
 
-    expect(order).toEqual(["resize", "rehydrate", 'open:{"fromSeq":37}']);
+    expect(order).toEqual(["resize", "rehydrate", 'open:{"leaseToken":"lease-37"}']);
     expect(screen.read()).toContain("__warm_screen__");
     // jsdom has no canvas renderer, so parsing is the last observable phase in
     // this unit test. A running WebKit view advances this to "warm" only from
     // xterm's onRender event.
-    expect(host.querySelector<HTMLElement>('[data-node="screen"]')?.dataset.terminalRestore)
+    expect(host.querySelector<HTMLElement>('[data-node="terminal-screen"]')?.dataset.terminalRestore)
       .toBe("buffered");
     screen.stop();
   });
@@ -112,8 +120,8 @@ describe("a mounted terminal", () => {
   it("opens a fresh pane before registering it with the restore sidecar", async () => {
     const order: string[] = [];
     const fresh = binding({
-      open: vi.fn(async () => {
-        order.push("open");
+      open: vi.fn(async (...args: unknown[]) => {
+        order.push("open:" + String(args[4]));
         return SESSION;
       }),
     }) as TerminalBinding & {
@@ -123,14 +131,40 @@ describe("a mounted terminal", () => {
     fresh.paneAlive = vi.fn(async () => false);
     fresh.sidecarRequest = vi.fn(async (request) => {
       order.push(String(request.op));
-      return { ok: true, data: {} };
+      if (request.op === "archived") {
+        return { ok: false, code: "NOT_FOUND", message: "no checkpoint" };
+      }
+      return {
+        ok: true,
+        data: request.op === "prepareSession" ? { observerToken: "observer-fresh" } : {},
+      };
     });
 
     const screen = mountTerminal(mountedHost(), "pan-fresh", fresh);
     await nextFrame();
     await Promise.resolve();
 
-    expect(order).toEqual(["open", "ensureSession"]);
+    expect(order).toEqual(["archived", "prepareSession", "open:observer-fresh", "ensureSession"]);
+    screen.stop();
+  });
+
+  it("paints an archived checkpoint without opening a PTY and rejects input", async () => {
+    const open = vi.fn(async () => SESSION);
+    const write = vi.fn(async () => {});
+    const archived = binding({ open, write });
+    archived.paneAlive = vi.fn(async () => false);
+    archived.sidecarRequest = vi.fn(async (request) => request.op === "archived"
+      ? { ok: true, data: { paint: btoa("ARCHIVED-SCREEN") } }
+      : { ok: true, data: {} });
+    const screen = mountTerminal(mountedHost(), "pan-archived", archived);
+    await nextFrame();
+    await vi.waitFor(() => expect(screen.read()).toContain("ARCHIVED-SCREEN"));
+    screen.send("blocked");
+    expect(open).not.toHaveBeenCalled();
+    expect(write).not.toHaveBeenCalled();
+    expect(screen.status()).toMatchObject({
+      phase: "archived", recoveryOutcome: "archived", fidelity: "complete",
+    });
     screen.stop();
   });
 
@@ -152,7 +186,7 @@ describe("a mounted terminal", () => {
   it("focuses the canonical textarea and releases it before transfer", () => {
     const host = mountedHost();
     const screen = mountTerminal(host, "pan-focus", binding());
-    const input = host.querySelector<HTMLTextAreaElement>('[data-node="input"]')!;
+    const input = host.querySelector<HTMLTextAreaElement>('[data-node="terminal-input"]')!;
 
     expect(screen.focus()).toBe(true);
     expect(document.activeElement).toBe(input);
@@ -166,7 +200,7 @@ describe("a mounted terminal", () => {
     const host = mountedHost();
     const screen = mountTerminal(host, "pan-compose", binding({ write }));
     await nextFrame();
-    const input = host.querySelector<HTMLTextAreaElement>('[data-node="input"]')!;
+    const input = host.querySelector<HTMLTextAreaElement>('[data-node="terminal-input"]')!;
     input.dispatchEvent(new InputEvent("input", {
       data: "\ud55c", inputType: "insertReplacementText", bubbles: true,
     }));
@@ -180,8 +214,13 @@ describe("a mounted terminal", () => {
   it("exposes its screen and IME input as plugin-owned DOM addresses", () => {
     const host = mountedHost();
     const screen = mountTerminal(host, "pan-input", binding());
-    expect(host.querySelector<HTMLElement>('[data-node="screen"]')).not.toBeNull();
-    expect(host.querySelector<HTMLElement>('[data-node="input"]')?.tagName).toBe("TEXTAREA");
+    expect(host.dataset.node).toBe("terminal-root");
+    const terminalScreen = host.querySelector<HTMLElement>('[data-node="terminal-screen"]');
+    expect(terminalScreen).not.toBeNull();
+    expect(terminalScreen?.getAttribute("role")).toBe("log");
+    expect(terminalScreen?.getAttribute("aria-live")).toBe("polite");
+    expect(host.querySelector<HTMLElement>('[data-node="terminal-input"]')?.tagName).toBe("TEXTAREA");
+    expect(host.querySelector<HTMLElement>('[data-node="terminal-restore-status"]')).not.toBeNull();
     screen.stop();
   });
 
@@ -215,15 +254,17 @@ describe("a mounted terminal", () => {
     screen.stop();
   });
 
-  it("closes the session it opened when the view goes away", async () => {
+  it("detaches the renderer without ending the session when the view goes away", async () => {
     const close = vi.fn(async () => {});
-    const screen = mountTerminal(mountedHost(), "pan-bbbbbb", binding({ close }));
+    const detach = vi.fn();
+    const screen = mountTerminal(mountedHost(), "pan-bbbbbb", binding({ close, detach }));
 
     await nextFrame();
     screen.stop();
     await Promise.resolve();
 
-    expect(close).toHaveBeenCalledWith(SESSION);
+    expect(detach).toHaveBeenCalledWith(SESSION);
+    expect(close).not.toHaveBeenCalled();
   });
 
   it("subscribes for bytes on the session it opened, and only once it exists", async () => {

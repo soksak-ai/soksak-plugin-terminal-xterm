@@ -17,10 +17,31 @@
     "commands",
     "programs",
     "sidecar",
+    "secrets",
     "terminal"
+  ],
+  "implements": [
+    { "id": "soksak-spec-plugin-terminal", "version": "0.0.1" }
   ],
   "contributes": {
     "commands": [
+      {
+        "name": "status",
+        "title": { "en": "Terminal status", "ko": "터미널 상태" }
+      },
+      {
+        "name": "wait",
+        "title": { "en": "Wait for terminal phase", "ko": "터미널 단계 대기" }
+      },
+      { "name": "archive", "title": { "en": "Archive terminal state", "ko": "터미널 상태 보관" } },
+      {
+        "name": "focus",
+        "title": { "en": "Focus terminal", "ko": "터미널 포커스" }
+      },
+      {
+        "name": "recovery-status",
+        "title": { "en": "Terminal recovery status", "ko": "터미널 복원 상태" }
+      },
       {
         "name": "clear",
         "title": {
@@ -68,11 +89,23 @@
     ],
     "nodes": [
       {
-        "id": "screen",
+        "id": "terminal-root",
+        "description": { "en": "The terminal root", "ko": "터미널 루트" }
+      },
+      {
+        "id": "terminal-screen",
         "description": {
           "en": "The terminal screen",
           "ko": "터미널 화면"
         }
+      },
+      {
+        "id": "terminal-input",
+        "description": { "en": "The terminal input", "ko": "터미널 입력" }
+      },
+      {
+        "id": "terminal-restore-status",
+        "description": { "en": "The terminal recovery state", "ko": "터미널 복원 상태" }
       }
     ],
     "programs": [
@@ -109,14 +142,14 @@
       "name": "pty",
       "interface": {
         "id": "soksak-spec-sidecar-pty",
-        "range": "0.0.1"
+        "version": "0.0.1"
       }
     },
     {
       "name": "terminal-vt100",
       "interface": {
         "id": "soksak-spec-sidecar-terminal",
-        "range": "0.0.3"
+        "version": "0.0.1"
       }
     }
   ]

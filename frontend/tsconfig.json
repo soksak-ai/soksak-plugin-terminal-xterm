@@ -2,7 +2,11 @@
   "compilerOptions": {
     "target": "ES2022", "lib": ["ESNext", "DOM"], "module": "ESNext",
     "moduleResolution": "Bundler", "strict": true, "skipLibCheck": true, "noEmit": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true, "baseUrl": ".",
+    "paths": {
+      "@soksak/soksak-kit-plugin-terminal": ["../../../soksak-kits/soksak-kit-plugin-terminal/src/index.ts"],
+      "@soksak/soksak-contract-plugin-terminal": ["../../../soksak-contracts/soksak-contract-plugin-terminal/src/index.ts"]
+    }
   },
   "include": ["src", "../plugin.json"]
 }

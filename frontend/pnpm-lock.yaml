@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@soksak/soksak-contract-plugin-terminal':
+        specifier: file:../../../soksak-contracts/soksak-contract-plugin-terminal
+        version: file:../../../soksak-contracts/soksak-contract-plugin-terminal
+      '@soksak/soksak-kit-plugin-terminal':
+        specifier: file:../../../soksak-kits/soksak-kit-plugin-terminal
+        version: file:../../../soksak-kits/soksak-kit-plugin-terminal
       '@xterm/addon-fit':
         specifier: ^0.10.0
         version: 0.10.0(@xterm/xterm@5.5.0)
@@ -396,6 +402,12 @@ packages:
     resolution: {integrity: sha512-zD6NdeWEByGE9QF9vCrlJ5YQB4oq9q91kPZS37Jwj5hOkvR1lTBSpsKhKDw4IJtbQ35LsTS1HD9DZYGKIshU1Q==}
     cpu: [x64]
     os: [win32]
+
+  '@soksak/soksak-contract-plugin-terminal@file:../../../soksak-contracts/soksak-contract-plugin-terminal':
+    resolution: {directory: ../../../soksak-contracts/soksak-contract-plugin-terminal, type: directory}
+
+  '@soksak/soksak-kit-plugin-terminal@file:../../../soksak-kits/soksak-kit-plugin-terminal':
+    resolution: {directory: ../../../soksak-kits/soksak-kit-plugin-terminal, type: directory}
 
   '@types/chai@5.2.3':
     resolution: {integrity: sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA==}
@@ -989,6 +1001,12 @@ snapshots:
 
   '@rollup/rollup-win32-x64-msvc@4.62.4':
     optional: true
+
+  '@soksak/soksak-contract-plugin-terminal@file:../../../soksak-contracts/soksak-contract-plugin-terminal': {}
+
+  '@soksak/soksak-kit-plugin-terminal@file:../../../soksak-kits/soksak-kit-plugin-terminal':
+    dependencies:
+      '@soksak/soksak-contract-plugin-terminal': file:../../../soksak-contracts/soksak-contract-plugin-terminal
 
   '@types/chai@5.2.3':
     dependencies:

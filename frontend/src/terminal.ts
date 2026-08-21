@@ -6,6 +6,10 @@ import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { attachTerminalInputTrace, type BrowserInputTrace, type TerminalInputTrace } from "./inputTrace";
 import { observeTerminalTheme, readTerminalTheme } from "./theme";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
+import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
+import {
+  createTerminalStatusController, type TerminalStatusController,
+} from "@soksak/soksak-kit-plugin-terminal";
 import {
   createRendererPayload,
   summarizeRendererSamples,
@@ -28,11 +32,13 @@ export type TerminalBinding = {
     paneId: string,
     cols: number,
     rows: number,
-    replay: "none" | { fromSeq: number },
+    replay: "none" | { leaseToken: string },
+    observerToken?: string,
   ): Promise<TerminalHandle>;
   write(handle: TerminalHandle, data: string): Promise<void>;
   resize(handle: TerminalHandle, cols: number, rows: number): Promise<void>;
   close(handle: TerminalHandle): Promise<void>;
+  detach(handle: TerminalHandle): void;
   onData(handle: TerminalHandle, callback: (bytes: Uint8Array) => void): { dispose(): void };
   /** Hands the host a way to read this screen and to type into it.
    *
@@ -47,6 +53,7 @@ export type TerminalBinding = {
   traceInput(handle: TerminalHandle, event: TerminalInputTrace): Promise<void>;
   paneAlive(paneId: string): Promise<boolean>;
   sidecarRequest(request: Record<string, unknown>): Promise<Record<string, unknown>>;
+  diagnostics(): Promise<{ pty: Record<string, unknown>; provider: Record<string, unknown> }>;
   /** Let go of every session opened under a window that has gone.
    *
    *  The unit holds shells that outlive an application generation, which is why they do not end by
@@ -74,6 +81,12 @@ export interface TerminalScreen {
   /** Redraw the retained screen for a focus-free background capture. */
   refresh: () => void;
   benchmark: (request: RendererBenchmarkRequest) => Promise<RendererBenchmarkReport>;
+  status: () => TerminalPluginPublicStatus;
+  writable: () => boolean;
+  size: () => { cols: number; rows: number };
+  wait: (phases: readonly TerminalPluginPublicStatus["phase"][], timeoutMs: number) => Promise<TerminalPluginPublicStatus>;
+  waitForText: (contains: string, timeoutMs: number) => Promise<string>;
+  statusController: TerminalStatusController;
 }
 
 export interface RendererBenchmarkRequest {
@@ -97,6 +110,7 @@ export function mountTerminal(
   binding: TerminalBinding,
   reportStatus: (status: TerminalMountStatus) => void = () => undefined,
 ): TerminalScreen {
+  host.dataset.node = "terminal-root";
   // Once per document, before xterm builds its DOM. Without these rules the
   // screen renders as unstyled spans.
   injectStyles();
@@ -119,8 +133,26 @@ export function mountTerminal(
   // The plugin owns these nodes, so it also owns their public names. Without the textarea address
   // an IME incident can be observed only by reaching into xterm's private class names, and neither
   // composition events nor focus can be reproduced through the command surface.
-  if (terminal.element) terminal.element.dataset.node = "screen";
-  if (terminal.textarea) terminal.textarea.dataset.node = "input";
+  if (terminal.element) {
+    terminal.element.dataset.node = "terminal-screen";
+    terminal.element.setAttribute("role", "log");
+    terminal.element.setAttribute("aria-live", "polite");
+  }
+  if (terminal.textarea) terminal.textarea.dataset.node = "terminal-input";
+  const statusNode = document.createElement("span");
+  statusNode.dataset.node = "terminal-restore-status";
+  statusNode.hidden = true;
+  host.append(statusNode);
+  const statusController = createTerminalStatusController({
+    root: statusNode,
+    pluginId: "soksak-plugin-terminal-xterm",
+    engineId: "vt100",
+    rendererId: "xterm",
+    rendererProfile: "web",
+    publish: (status) => reportStatus(
+      status.failure ? { code: status.failure.code, message: status.failure.message } : null,
+    ),
+  });
   host.dataset.terminalIme = "webkit";
   let handle: TerminalHandle | null = null;
   let output: { dispose(): void } | null = null;
@@ -171,9 +203,30 @@ export function mountTerminal(
       if (message) node.dataset.terminalRestoreError = message;
       else delete node.dataset.terminalRestoreError;
     }
-    reportStatus(state === "error" || state === "degraded"
-      ? { code: `terminal.restore.${state}`, message }
-      : null);
+    if (state === "checking") statusController.set("preparing-recovery");
+    else if (state === "buffered") statusController.set("applying-snapshot");
+    else if (state === "warm") {
+      statusController.set("live", {
+        recoveryOutcome: "continued", fidelity: "complete", failure: null,
+      });
+    } else if (state === "fresh") {
+      statusController.set("live", {
+        recoveryOutcome: "fresh", fidelity: "complete", failure: null,
+      });
+    } else if (state === "degraded") {
+      statusController.set("live", {
+        recoveryOutcome: "blocked", fidelity: "unavailable",
+        failure: {
+          code: "PROVIDER_UNAVAILABLE",
+          message: message ?? "recovery provider unavailable",
+        },
+      });
+    } else if (state === "error") {
+      statusController.set("blocked", {
+        recoveryOutcome: "blocked", fidelity: "unavailable",
+        failure: { code: "TERMINAL_OPEN_FAILED", message: message ?? "terminal open failed" },
+      });
+    }
   };
   const requireSidecarReply = (
     reply: Record<string, unknown>,
@@ -187,20 +240,38 @@ export function mountTerminal(
     const data = reply.data;
     return data && typeof data === "object" ? data as Record<string, unknown> : {};
   };
-  const paintSnapshot = async (paint: string): Promise<void> => {
+  const paintSnapshot = async (paint: string, archived = false): Promise<void> => {
     const decoded = atob(paint);
     const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
     await new Promise<void>((resolve) => terminal.write(bytes, resolve));
-    setRestoreStatus("buffered");
+    if (archived) {
+      statusController.set("archived", {
+        recoveryOutcome: "archived", fidelity: "complete", failure: null,
+      });
+    } else setRestoreStatus("buffered");
     const rendered = terminal.onRender(() => {
       rendered.dispose();
-      if (!disposed) setRestoreStatus("warm");
+      if (!disposed && !archived) setRestoreStatus("warm");
     });
     terminal.refresh(0, Math.max(0, terminal.rows - 1));
   };
-  const restore = async (): Promise<"none" | { fromSeq: number }> => {
+  const restore = async (): Promise<
+    | { kind: "fresh" }
+    | { kind: "warm"; leaseToken: string }
+    | { kind: "archived" }
+  > => {
     setRestoreStatus("checking");
-    if (!await binding.paneAlive(id)) return "none";
+    if (!await binding.paneAlive(id)) {
+      const archived = await binding.sidecarRequest({ op: "archived", pane: id });
+      if (archived.ok === true) {
+        const data = requireSidecarReply(archived, "archived");
+        if (typeof data.paint !== "string") throw new Error("archived returned no paint");
+        await paintSnapshot(data.paint, true);
+        return { kind: "archived" };
+      }
+      if (archived.code !== "NOT_FOUND") requireSidecarReply(archived, "archived");
+      return { kind: "fresh" };
+    }
     requireSidecarReply(await binding.sidecarRequest({
       op: "resize", pane: id, cols: terminal.cols || 80, rows: terminal.rows || 24,
     }), "resize");
@@ -208,13 +279,22 @@ export function mountTerminal(
       await binding.sidecarRequest({ op: "rehydrate", pane: id }),
       "rehydrate",
     );
-    if (typeof restored.paint !== "string" ||
-        typeof restored.uptoSeq !== "number" ||
-        !Number.isSafeInteger(restored.uptoSeq) || restored.uptoSeq < 0) {
-      throw new Error("rehydrate returned an invalid paint or uptoSeq");
+    if (typeof restored.paint !== "string" || typeof restored.leaseToken !== "string" ||
+        restored.leaseToken.length === 0) {
+      throw new Error("rehydrate returned no snapshot lease");
     }
     await paintSnapshot(restored.paint);
-    return { fromSeq: restored.uptoSeq };
+    return { kind: "warm", leaseToken: restored.leaseToken };
+  };
+
+  const prepareFreshObserver = async (): Promise<string> => {
+    const prepared = requireSidecarReply(await binding.sidecarRequest({
+      op: "prepareSession", pane: id, cols: terminal.cols || 80, rows: terminal.rows || 24,
+    }), "prepareSession");
+    if (typeof prepared.observerToken !== "string" || prepared.observerToken.length === 0) {
+      throw new Error("prepareSession returned no observerToken");
+    }
+    return prepared.observerToken;
   };
   const openWhenSized = () => {
     if (
@@ -223,11 +303,19 @@ export function mountTerminal(
     ) return;
     resizeNow();
     opening = true;
-    void restore().then((replay) => binding.open(
-      id, terminal.cols || 80, terminal.rows || 24, replay,
-    )).then(
-      (opened) => {
+    void restore().then(async (recovery) => {
+      if (recovery.kind === "archived") return null;
+      const observerToken = recovery.kind === "fresh" ? await prepareFreshObserver() : undefined;
+      const opened = await binding.open(
+        id, terminal.cols || 80, terminal.rows || 24,
+        recovery.kind === "warm" ? { leaseToken: recovery.leaseToken } : "none", observerToken,
+      );
+      return { opened, observerToken };
+    }).then(
+      (result) => {
         opening = false;
+        if (result === null) return;
+        const { opened, observerToken } = result;
         if (disposed) {
           void binding.close(opened);
           return;
@@ -241,9 +329,10 @@ export function mountTerminal(
         for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
         resizeNow();
         terminal.refresh(0, Math.max(0, terminal.rows - 1));
-        if (host.dataset.terminalRestore === "checking") {
+        if (observerToken) {
           void binding.sidecarRequest({
-            op: "ensureSession", pane: id, cols: terminal.cols || 80, rows: terminal.rows || 24,
+            op: "ensureSession", pane: id, cols: terminal.cols || 80,
+            rows: terminal.rows || 24, observerToken,
           }).then(
             (reply) => {
               requireSidecarReply(reply, "ensureSession");
@@ -290,7 +379,8 @@ export function mountTerminal(
     input.dispose();
     stopInputTrace();
     ime.dispose();
-    if (handle) void binding.close(handle);
+    if (handle) binding.detach(handle);
+    statusController.close();
     terminal.dispose();
     delete host.dataset.terminalIme;
     for (const node of [host, terminal.element]) {
@@ -345,6 +435,23 @@ export function mountTerminal(
         rows: terminal.rows,
         ...summarizeRendererSamples(samplesMs, payload.byteLength),
       };
+    },
+    status: () => statusController.current(),
+    statusController,
+    writable: () => handle !== null && statusController.current().phase === "live",
+    size: () => ({ cols: terminal.cols, rows: terminal.rows }),
+    wait: (phases, timeoutMs) => statusController.wait(phases, timeoutMs),
+    waitForText: (contains, timeoutMs) => {
+      const current = () => readScreen(terminal);
+      if (current().includes(contains)) return Promise.resolve(current());
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => { rendered.dispose(); reject(new Error(`terminal text wait timed out after ${timeoutMs}ms`)); }, timeoutMs);
+        const rendered = terminal.onRender(() => {
+          const text = current();
+          if (!text.includes(contains)) return;
+          clearTimeout(timer); rendered.dispose(); resolve(text);
+        });
+      });
     },
   };
 }

@@ -22,6 +22,30 @@ const MESSAGES = {
     en: "This pane holds no terminal session yet",
     ko: "이 판에는 아직 터미널 세션이 없습니다",
   },
+  "terminal.status.description": {
+    en: "Return this terminal's plugin and recovery state.",
+    ko: "이 터미널의 플러그인 및 복원 상태를 반환합니다.",
+  },
+  "terminal.status.answer": {
+    en: "Returned terminal status",
+    ko: "터미널 상태를 반환했습니다",
+  },
+  "terminal.recovery.description": {
+    en: "Return this terminal's recovery phase and fidelity.",
+    ko: "이 터미널의 복원 단계와 충실도를 반환합니다.",
+  },
+  "terminal.recovery.answer": {
+    en: "Returned terminal recovery status",
+    ko: "터미널 복원 상태를 반환했습니다",
+  },
+  "terminal.focus.description": {
+    en: "Focus this terminal's input.",
+    ko: "이 터미널의 입력에 포커스를 둡니다.",
+  },
+  "terminal.focus.answer": {
+    en: "Requested terminal focus",
+    ko: "터미널 포커스를 요청했습니다",
+  },
   "terminal.clear.description": {
     en: "Clear this terminal's screen. The shell keeps running.",
     ko: "이 터미널 화면을 지웁니다. 셸은 계속 실행됩니다.",
