@@ -9,7 +9,8 @@
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "verify": "pnpm typecheck && pnpm test && pnpm build && git diff --exit-code -- ../main.js"
   },
   "dependencies": {
     "@soksak/soksak-contract-plugin-terminal": "file:../../../soksak-contracts/soksak-contract-plugin-terminal",
