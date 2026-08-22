@@ -14,13 +14,13 @@ await build({
   format: "esm",
   platform: "browser",
   target: "es2022",
+  minifyWhitespace: true,
   // plugin.json names the file. Two names would let the build write one file
   // and the loader read another.
   // xterm CSS becomes a string so the whole plugin is one file. The host reads
   // the entry and nothing beside it.
   loader: { ".css": "text" },
   outfile: `../${manifest.entry}`,
-  minify: false,
   legalComments: "none",
   logLevel: "info",
 });
