@@ -4,7 +4,7 @@
     "en": "Terminal",
     "ko": "터미널"
   },
-  "version": "0.0.3",
+  "version": "0.0.4",
   "appVersionRequirement": "0.0.1",
   "description": {
     "en": "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
@@ -21,7 +21,7 @@
     "terminal"
   ],
   "implements": [
-    { "id": "soksak-spec-plugin-terminal", "version": "0.0.1" }
+    { "id": "soksak-spec-plugin-terminal", "version": "0.0.2" }
   ],
   "contributes": {
     "commands": [
