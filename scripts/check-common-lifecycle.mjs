@@ -14,4 +14,6 @@ test("the common kit exclusively owns terminal lifecycle and standard commands",
     assert.equal(activate.includes(forbidden), false, `activate.ts owns ${forbidden}`);
     assert.equal(renderer.includes(forbidden), false, `xterm-renderer.ts owns ${forbidden}`);
   }
+  assert.equal(renderer.includes("terminal.onRender"), false, "text waits must observe parser completion");
+  assert.equal(renderer.includes("terminal.onWriteParsed"), false, "text waits must observe exact write completion");
 });

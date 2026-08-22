@@ -43,10 +43,12 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   const ime = new WebkitImeAddon({ onData: (data) => { void write(data); }, onDebug: () => undefined });
   terminal.loadAddon(ime);
   const input = terminal.onData((data) => routeXtermData(ime, write, data));
-  const rendered = new Set<(text: string) => void>();
-  const renderListener = terminal.onRender(() => {
-    const text = readScreen(terminal); for (const listener of rendered) listener(text);
-  });
+  const parsed = new Set<() => void>();
+  const notifyParsed = () => { for (const listener of parsed) listener(); };
+  const waitForText = createTerminalTextWait(
+    () => readScreen(terminal),
+    (callback) => { parsed.add(callback); return { dispose: () => { parsed.delete(callback); } }; },
+  );
   const fit = () => {
     if (container.isConnected && container.clientWidth > 0 && container.clientHeight > 0) fitAddon.fit();
   };
@@ -56,22 +58,12 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     root: container, fit, size: () => ({ cols: terminal.cols, rows: terminal.rows }),
     applySnapshot: async (snapshot) => {
       if (typeof snapshot.paint !== "string") throw new Error("terminal snapshot has no paint");
-      await new Promise<void>((resolve) => terminal.write(decodeBase64(snapshot.paint as string), resolve));
+      await new Promise<void>((resolve) => terminal.write(decodeBase64(snapshot.paint as string), () => { notifyParsed(); resolve(); }));
       terminal.refresh(0, Math.max(0, terminal.rows - 1));
     },
-    writeOutput: (bytes) => { terminal.write(bytes); },
+    writeOutput: (bytes) => { terminal.write(bytes, notifyParsed); },
     read: (lines) => readScreen(terminal, lines),
-    waitForText(contains, timeoutMs) {
-      const current = readScreen(terminal);
-      if (current.includes(contains)) return Promise.resolve(current);
-      return new Promise((resolve, reject) => {
-        const timer = setTimeout(() => { rendered.delete(onRender); reject(new Error(`terminal text wait timed out after ${timeoutMs}ms`)); }, timeoutMs);
-        const onRender = (text: string) => {
-          if (!text.includes(contains)) return; clearTimeout(timer); rendered.delete(onRender); resolve(text);
-        };
-        rendered.add(onRender);
-      });
-    },
+    waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
     refresh: () => terminal.refresh(0, Math.max(0, terminal.rows - 1)),
@@ -92,9 +84,29 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
-      stopTheme(); input.dispose(); renderListener.dispose(); ime.dispose(); terminal.dispose();
+      parsed.clear(); stopTheme(); input.dispose(); ime.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
     },
+  };
+}
+
+export function createTerminalTextWait(
+  read: () => string,
+  onWriteParsed: (callback: () => void) => { dispose(): void },
+): (contains: string, timeoutMs: number) => Promise<string> {
+  return (contains, timeoutMs) => {
+    const current = read();
+    if (current.includes(contains)) return Promise.resolve(current);
+    return new Promise((resolve, reject) => {
+      const parsed = onWriteParsed(() => {
+        const text = read();
+        if (!text.includes(contains)) return;
+        clearTimeout(timer); parsed.dispose(); resolve(text);
+      });
+      const timer = setTimeout(() => {
+        parsed.dispose(); reject(new Error(`terminal text wait timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
   };
 }
 

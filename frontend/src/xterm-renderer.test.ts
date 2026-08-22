@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
-import { createXtermPresenter } from "./xterm-renderer";
+import { createTerminalTextWait, createXtermPresenter } from "./xterm-renderer";
 
 vi.stubGlobal("matchMedia", () => ({
   matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
@@ -16,6 +16,27 @@ function mounted(): HTMLElement {
 }
 
 describe("Xterm renderer adapter", () => {
+  it("waits on parser completion when rendering is suspended", async () => {
+    let parsed: (() => void) | undefined;
+    let text = "";
+    const wait = createTerminalTextWait(
+      () => text,
+      (callback) => { parsed = callback; return { dispose() {} }; },
+    );
+    const found = wait("TAIL", 100);
+    text = "262144 bytes TAIL";
+    parsed!();
+    await expect(found).resolves.toBe(text);
+  });
+
+  it("observes restored text through the same parser boundary", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    const found = presenter.waitForText("RESTORED", 100);
+    await presenter.applySnapshot!({ paint: btoa("RESTORED") }, false);
+    await expect(found).resolves.toContain("RESTORED");
+    presenter.dispose();
+  });
+
   it("applies recovery paint and later PTY bytes to the same screen", async () => {
     const presenter = createXtermPresenter(mounted(), vi.fn());
     await presenter.applySnapshot!({ paint: btoa("RESTORED") }, false);
