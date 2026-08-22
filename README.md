@@ -1,8 +1,16 @@
 # soksak-plugin-terminal-xterm
 
-PTY and xterm terminal plugin. It owns terminal generations, byte-preserving
-base64 output events, true-color/UTF-8 terminal capabilities, resize, input,
-status, close, and process-group reaping. Version starts at `0.0.1`.
+Terminal plugin that supplies the Xterm renderer adapter to `soksak-kit-plugin-terminal`.
+
+The common terminal kit owns view registration, PTY and recovery lifecycle, resize coordination,
+public status, waits, and every command required by the terminal plugin contract. This plugin owns
+only the Xterm-specific renderer, screen buffer, theme, input and IME behavior, capture refresh,
+parser benchmark, and its optional `exec` and `cwd` commands. A repository boundary test rejects
+reintroduction of plugin-owned lifecycle primitives or render-driven text waits.
+
+PTY output is serialized into Xterm. One write may be in flight and output that arrives behind it is
+coalesced into the next ordered write. Snapshot and live bytes use the same queue, and text waits
+observe exact Xterm write-completion callbacks rather than polling or render events.
 
 ## Child environment contract
 
@@ -18,15 +26,22 @@ values therefore override plugin defaults, including an intentional
 
 ## WebKit IME contract
 
-The frontend owns the WKWebView Korean/CJK composition boundary. It routes the
+The renderer owns the WKWebView Korean/CJK composition boundary. It routes the
 standard composition path through xterm, intercepts WebKit's non-standard
 `insertText`/`insertReplacementText` path, suppresses leaked partial jamo, and
 serializes finalized text with following PTY writes so input order cannot race.
 The terminal host exposes `data-terminal-ime="webkit"` while this owner is
 active.
 
-The WebKit adapter is vendored from `min-median-max/xterm-addon-webkit-ime` at
-commit `bf2e218ae651f2c8ee01e1fe515679cb8c56bcd2` under its MIT license. The
-upstream repository does not currently publish the `dist` entry declared by
-its package metadata, so the audited source is pinned locally instead of using
-a broken runtime package dependency.
+The adapter depends on `min-median-max/xterm-addon-webkit-ime` at commit
+`4d00ed700ee26f58250955f68bc8b552b2996645` under its MIT license.
+
+## Verification
+
+```sh
+cd frontend
+pnpm install --frozen-lockfile
+pnpm typecheck
+pnpm test
+pnpm build
+```
