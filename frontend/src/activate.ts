@@ -1,7 +1,7 @@
 import { sentence, t } from "./i18n";
 import { mountTerminal, type TerminalBinding, type TerminalScreen } from "./terminal";
 import {
-  createTerminalSessionBinding, waitForTerminalConditions,
+  createTerminalSessionBinding, terminalResizeStatus, waitForTerminalConditions,
 } from "@soksak/soksak-kit-plugin-terminal";
 import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
 
@@ -312,8 +312,12 @@ export function activate(ctx: ActivateContext): void {
       const found = target(params, context);
       if (isRefusal(found)) return found;
       return {
-        view: found.key, ...found.screen.status(), ...found.screen.size(),
-        source: await binding.diagnostics(),
+        ...found.screen.status(),
+        ...terminalResizeStatus({
+          pane: found.key, session: currentSessionId ?? 0, hostPixels: found.screen.hostPixels(),
+          requested: found.screen.requestedSize(), rendered: found.screen.size(),
+          operation: found.screen.status().phase, diagnostics: await binding.diagnostics(),
+        }),
       };
     },
   });
@@ -367,16 +371,17 @@ export function activate(ctx: ActivateContext): void {
     params: { view: viewParam },
     returns: "{ view, phase, recoveryOutcome, fidelity, failure }",
     message: () => sentence("terminal.recovery.answer"),
-    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
+    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
       const found = target(params, context);
       if (isRefusal(found)) return found;
       const status = found.screen.status();
       return {
-        view: found.key,
-        phase: status.phase,
-        recoveryOutcome: status.recoveryOutcome,
-        fidelity: status.fidelity,
-        failure: status.failure,
+        ...status,
+        ...terminalResizeStatus({
+          pane: found.key, session: currentSessionId ?? 0, hostPixels: found.screen.hostPixels(),
+          requested: found.screen.requestedSize(), rendered: found.screen.size(),
+          operation: status.phase, diagnostics: await binding.diagnostics(),
+        }),
       };
     },
   });

@@ -84,6 +84,8 @@ export interface TerminalScreen {
   status: () => TerminalPluginPublicStatus;
   writable: () => boolean;
   size: () => { cols: number; rows: number };
+  hostPixels: () => { width: number; height: number };
+  requestedSize: () => { cols: number; rows: number } | null;
   wait: (phases: readonly TerminalPluginPublicStatus["phase"][], timeoutMs: number) => Promise<TerminalPluginPublicStatus>;
   waitForText: (contains: string, timeoutMs: number) => Promise<string>;
   statusController: TerminalStatusController;
@@ -160,6 +162,7 @@ export function mountTerminal(
   let disposed = false;
   let opening = false;
   let traceSequence = 0;
+  let requestedSize: { cols: number; rows: number } | null = null;
   const pendingTrace: TerminalInputTrace[] = [];
   const record = (event: BrowserInputTrace): void => {
     const trace = { ...event, sequence: ++traceSequence };
@@ -194,7 +197,16 @@ export function mountTerminal(
   const resizeNow = () => {
     if (!host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
     fit.fit();
-    if (handle && terminal.cols > 0 && terminal.rows > 0) void binding.resize(handle, terminal.cols, terminal.rows);
+    if (handle && terminal.cols > 0 && terminal.rows > 0) {
+      const size = { cols: terminal.cols, rows: terminal.rows };
+      void binding.resize(handle, size.cols, size.rows).then(
+        () => { requestedSize = size; },
+        (error: unknown) => statusController.set("blocked", {
+          recoveryOutcome: "blocked", fidelity: "unavailable",
+          failure: { code: "RESIZE_FAILED", message: String(error) },
+        }),
+      );
+    }
   };
   const setRestoreStatus = (state: string, message?: string): void => {
     for (const node of [host, terminal.element]) {
@@ -310,6 +322,7 @@ export function mountTerminal(
         id, terminal.cols || 80, terminal.rows || 24,
         recovery.kind === "warm" ? { leaseToken: recovery.leaseToken } : "none", observerToken,
       );
+      requestedSize = { cols: terminal.cols || 80, rows: terminal.rows || 24 };
       return { opened, observerToken };
     }).then(
       (result) => {
@@ -440,6 +453,8 @@ export function mountTerminal(
     statusController,
     writable: () => handle !== null && statusController.current().phase === "live",
     size: () => ({ cols: terminal.cols, rows: terminal.rows }),
+    hostPixels: () => ({ width: host.clientWidth, height: host.clientHeight }),
+    requestedSize: () => requestedSize,
     wait: (phases, timeoutMs) => statusController.wait(phases, timeoutMs),
     waitForText: (contains, timeoutMs) => {
       const current = () => readScreen(terminal);

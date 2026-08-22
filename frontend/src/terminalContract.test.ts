@@ -103,7 +103,14 @@ describe("terminal plugin behavior contract", () => {
       phase: "live",
       recoveryOutcome: "fresh",
       fidelity: "complete",
+      hostPixels: { width: 800, height: 600 },
+      requested: expect.objectContaining({ cols: expect.any(Number), rows: expect.any(Number) }),
+      pty: null, recovery: null,
+      rendered: expect.objectContaining({ cols: expect.any(Number), rows: expect.any(Number) }),
+      operation: expect.any(String),
     });
+    expect(status).not.toHaveProperty("source");
+    expect(status).not.toHaveProperty("cols");
     expect(await commands.get("recovery-status")!({ view: "tab-contract" }))
       .toMatchObject({ phase: "live", recoveryOutcome: "fresh", fidelity: "complete" });
     expect(await commands.get("focus")!({ view: "tab-contract" }))
