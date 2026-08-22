@@ -22,7 +22,7 @@ jobs:
           repository: soksak-ai/soksak-spec
           ref: 418d6064fcdc5885be1ff73fd898fd7a0f778a0f
           path: soksak-plugins/soksak-plugin-terminal-xterm/.dependency/soksak-spec
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: min-median-max/xterm-addon-webkit-ime
           ref: 488de7fa0585aa251b0520785d687b2be2d1e4d5
