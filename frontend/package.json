@@ -1,6 +1,6 @@
 {
   "name": "@soksak/soksak-plugin-terminal-xterm",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "pnpm": { "onlyBuiltDependencies": ["esbuild"] },
   "type": "module",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@soksak/soksak-contract-plugin-terminal": "github:soksak-ai/soksak-contract-plugin-terminal#494ffa0bbba813f5b43501a119190f395fa45e8f",
-    "@soksak/soksak-kit-plugin-terminal": "github:soksak-ai/soksak-kit-plugin-terminal#b304dcb956ce832ed4edbc606ae960d5c9b01407",
+    "@soksak/soksak-kit-plugin-terminal": "github:soksak-ai/soksak-kit-plugin-terminal#6bfd71e360b6f6b179be62fbcdbc650d2a11319d",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "xterm-addon-webkit-ime": "github:min-median-max/xterm-addon-webkit-ime#4d00ed700ee26f58250955f68bc8b552b2996645"
