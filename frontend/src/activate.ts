@@ -1,117 +1,13 @@
+import { activateProviderTerminalPlugin, type ProviderTerminalPluginHost } from "@soksak/soksak-kit-plugin-terminal";
+
 import { sentence, t } from "./i18n";
-import { mountTerminal, type TerminalBinding, type TerminalScreen } from "./terminal";
-import {
-  createTerminalSessionBinding, terminalResizeStatus, waitForTerminalConditions,
-  type TerminalLayoutEvents,
-} from "@soksak/soksak-kit-plugin-terminal";
-import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
+import { createXtermRendererAdapter, type XtermPresenter } from "./xterm-renderer";
 
-// The plugin's entry. The host calls activate(ctx); this registers the view and
-// the commands the manifest declares. The host registers nothing on the
-// plugin's behalf.
-//
-// The terminal binding is the host's PTY commands. This plugin owns xterm and
-// the input path; the file descriptor is held by the process that opened it.
-
-/** What this plugin needs from the host: a subset of the plugin API, declared
- *  here so every shape this file depends on is visible in one place. */
-export interface TerminalHost {
-  ui: {
-    registerView(viewId: string, provider: {
-      mount(container: HTMLElement, ctx: unknown): void;
-      unmount?(container: HTMLElement): void;
-      prepareFocusTransfer?(container: HTMLElement, ctx: unknown): void;
-      focus?(container: HTMLElement, ctx: unknown, request: { signal: AbortSignal }): void;
-    }): { dispose(): void };
-    /** One reading or control in the status bar of the group showing a view. The
-     *  host places it and reads nothing into it. */
-    statusBarItem?(item: {
-      id: string;
-      paneId: string;
-      label: string;
-      title?: string;
-      side?: "left" | "right";
-      onClick?: () => void;
-    }): { dispose(): void };
-  };
-  commands: {
-    register(name: string, spec: Record<string, unknown>): { dispose(): void } | void;
-    execute?(name: string, params?: Record<string, unknown>): Promise<unknown>;
-  };
-  /** The host's display language. This plugin translates its own strings. */
+export interface TerminalHost extends ProviderTerminalPluginHost {
   locale(): string;
-  /** Which window this instance is in.
-   *
-   *  It travels with a session so the PTY sidecar can release one window's sessions when
-   *  that window goes, and so a screen mirror can tell two windows' panes apart. An empty label
-   *  makes every session look like it belongs to the same nameless window, and closing one window
-   *  would then reach every window's shells or none. */
-  windowLabel(): string;
-  /** Observation of a pane's shell, granted by the "terminal" permission. The
-   *  host parses OSC 7/133/633 out of the byte stream — a protocol decoder every
-   *  plugin reading a PTY would otherwise write again — and this reads the
-   *  answer. What the answer *means* is decided here. */
-  terminal?: {
-    getCwd?(paneId: string): string | undefined;
-    onCwd?(paneId: string, listener: (cwd: string) => void): { dispose(): void };
-    /** Hand the host's decoder this pane's raw output.
-     *
-     *  The host parses OSC 7/133/633 out of it and answers getCwd and the command events from what
-     *  it found. It decodes and decides nothing — what a command boundary means is decided here.
-     *
-     *  The host sees no bytes otherwise: the shell is managed by a sidecar, and the stream goes
-     *  from that sidecar to this code. Without this call every reading above stays empty on a pane that
-     *  is running perfectly, which reads as shell integration that is broken. */
-    observe?(paneId: string, bytes: Uint8Array): void;
-    /** Hand the host a way to read this screen and to type into it.
-     *
-     *  Without it the host's own terminal surfaces answer "not ready" for a pane that is running:
-     *  term.read, term.send and app.terminal.readBuffer all resolve through this registration. The
-     *  screen is this plugin's, so the host cannot reach it any other way. */
-    registerIo?(
-      paneId: string,
-      io: { readBuffer: (lines?: number) => string; sendInput: (data: string) => void },
-    ): { dispose(): void };
+  terminal?: ProviderTerminalPluginHost["terminal"] & {
+    getCwd?(pane: string): string | undefined;
   };
-  /** The host's event bus. `command.started` and `command.finished` are what the
-   *  OSC 133/633 decoder publishes; what they should look like on screen is
-   *  decided here. */
-  events?: {
-    on?(
-      event: string,
-      listener: (payload: {
-        paneId?: string;
-        commandLine?: string;
-        paths?: string[];
-        windowLabel?: string;
-      }) => void,
-    ): { dispose(): void };
-  };
-  /** The sidecars this plugin declared, granted by the "sidecar" permission.
-   *
-   *  A shell reaches this plugin through the sidecar its manifest declared and through nothing else.
-   *  The host opens only a declared name, refuses one whose installed release implements a different
-   *  contract, and passes requests through without reading them — so what a request means is this
-   *  plugin's business with its sidecar, and the host has no opinion about terminals. */
-  sidecar: {
-    open(name: string, opts?: {
-      secretEnv?: Record<string, string>;
-      generatedSecretEnv?: Record<string, { key: string; bytes: number }>;
-    }): Promise<SidecarChannel>;
-  };
-  secrets?: {
-    generate(key: string, bytes: number): Promise<{ created: boolean }>;
-  };
-}
-
-/** One opened sidecar channel. Its interface contract defines what crosses it. */
-export interface SidecarChannel {
-  send(request: Record<string, unknown>): Promise<Record<string, unknown>>;
-  stream(
-    request: Record<string, unknown>,
-    handlers: { onBytes: (data: Uint8Array) => void; onEnd?: (reason: string) => void },
-  ): Promise<{ answer: Record<string, unknown>; close: { dispose(): void } }>;
-  close(): Promise<void>;
 }
 
 export interface ActivateContext {
@@ -119,477 +15,59 @@ export interface ActivateContext {
   subscriptions: { dispose(): void }[];
 }
 
-/** A path as one shell word.
- *
- *  Everything outside the unreserved set is escaped rather than quoted: a
- *  filename holding a quote breaks out of quoting, and a space or a `$` in a
- *  bare path becomes two words or an expansion. */
-function quoteForShell(path: string): string {
-  return path.replace(/[^A-Za-z0-9_./@%+:,=-]/g, "\\$&");
-}
-
-/** One terminal per mounted container. */
-export function activate(ctx: ActivateContext): void {
-  const app = ctx.app;
-  // Keyed by view id — the stable identity of this view instance, and what an
-  // outside caller names. Keyed by container, a command could reach a screen
-  // only by already holding its element.
-  const screens = new Map<
-    string,
-    {
-      screen: TerminalScreen;
-      container: HTMLElement;
-      setStatus: (status: { code: string; message?: string } | null) => void;
-    }
-  >();
-  const binding = ptyBinding(app);
-
-  // A window this plugin opened sessions under has gone, so the PTY sidecar releases them.
-  //
-  // Nothing else will: the plugin instance in that window died with it, and the sidecar holds shells
-  // that outlive an application generation on purpose — which is exactly why they do not end by
-  // themselves. Without this, every closed window leaves its shells running until the application
-  // quits and the sidecar process ends.
-  //
-  // This instance is in a window that survived. Session ownership by window is the sidecar's
-  // record, keyed by the label the caller sent when it opened them.
-  const windowGone = app.events?.on?.("window.gone", (payload) => {
-    const windowLabel = payload.windowLabel;
-    if (typeof windowLabel !== "string" || windowLabel === "") return;
-    void binding.closeWindow(windowLabel);
-  });
-  if (windowGone) ctx.subscriptions.push(windowGone);
-  const screenOf = (container: HTMLElement): TerminalScreen | null => {
-    for (const mounted of screens.values()) {
-      if (mounted.container === container) return mounted.screen;
-    }
-    return null;
-  };
-
-  /** This screen's working directory, and what kind of screen it is, in the status bar.
-   *
-   *  The host decodes OSC 7 and answers where the shell says it is. That a person wants to see it,
-   *  on the left, and that "~" stands in before the shell has said anything, are decisions — and
-   *  they are this plugin's. A host that made them would be drawing one kind of content's status
-   *  line on its behalf, which is what it did until 2026-08-16. */
-  const showCwd = (key: string): void => {
-    const place = (cwd: string | undefined) => {
-      const item = app.ui.statusBarItem?.({
-        id: `cwd:${key}`,
-        paneId: key,
-        label: cwd ?? "~",
-        title: cwd,
-        side: "left",
-      });
-      if (item) ctx.subscriptions.push(item);
-    };
-    place(app.terminal?.getCwd?.(key));
-    const following = app.terminal?.onCwd?.(key, (cwd) => place(cwd));
-    if (following) ctx.subscriptions.push(following);
-    const label = app.ui.statusBarItem?.({
-      id: `kind:${key}`,
-      paneId: key,
-      label: t("terminal.label", app.locale()),
-    });
-    if (label) ctx.subscriptions.push(label);
-  };
-
-  const view = app.ui.registerView("content", {
-    mount(container, viewContext) {
-      // The address every outside caller uses to reach this screen.
-      container.dataset.node = "screen";
-      const key = sessionKeyOf(viewContext);
-      container.dataset.terminalView = key;
-      const status = (viewContext as { setStatus?: unknown } | null)?.setStatus;
-      const setStatus = typeof status === "function"
-        ? (status as (s: { code: string; message?: string } | null) => void)
-        : () => {};
-      screens.set(key, {
-        screen: mountTerminal(
-          container, key, binding, setStatus,
-          app.events?.on ? { on: (_event, callback) => app.events!.on!("layout.reflow", callback) } : undefined,
-        ),
-        container,
-        setStatus,
-      });
-      showCwd(key);
-    },
-    unmount(container) {
-      // Only when this is still the container the key names.
-      //
-      // A remount hands over a new element under the same view id, and the old element's unmount
-      // arrives after the new one's mount. Stopping by key alone disposes the screen that just
-      // opened: the shell keeps running with nothing drawing it, so the pane is blank and a read
-      // answers empty lines. Measured 2026-08-16 — four views mounted, three shells alive, every
-      // screen empty.
-      const key = container.dataset.terminalView ?? "";
-      const found = screens.get(key);
-      if (!found || found.container !== container) return;
-      found.screen.stop();
-      screens.delete(key);
-    },
-    prepareFocusTransfer(container) {
-      screenOf(container)?.prepareFocusTransfer();
-    },
-    focus(container, _viewContext, request) {
-      if (request.signal.aborted) return;
-      screenOf(container)?.focus();
-    },
-  });
-  ctx.subscriptions.push(view);
-
-  register(app, ctx, "clear", {
-    description: sentence("terminal.clear.description"),
-    params: {},
-    returns: "{ cleared }",
-    message: () => sentence("terminal.cleared"),
-    handler: () => {
-      let cleared = 0;
-      for (const screen of screens.values()) {
-        if (!screen.screen.writable()) continue;
-        screen.container.dispatchEvent(new CustomEvent("soksak:terminal-clear"));
-        cleared += 1;
-      }
-      return { cleared };
-    },
-  });
-
-  /** The screen a call is about, or the refusal that names why there is none.
-   *
-   *  Named view first, then the pane the call came from, then the only one
-   *  mounted. Never a guess between two: a caller that reaches the wrong shell
-   *  finds out from what the shell did.
-   *
-   *  Returned rather than thrown. A thrown error reaches the caller as INTERNAL
-   *  with the sentence replaced — "this failed unexpectedly" — and a refusal
-   *  that states which screens exist is exactly what the caller needs. */
-  type Refusal = { ok: false; code: string; message: string; data?: Record<string, unknown> };
-  const isRefusal = (v: unknown): v is Refusal =>
-    !!v && typeof v === "object" && (v as { ok?: unknown }).ok === false;
-
-  const target = (
-    params: Record<string, unknown>,
-    context?: { pane?: string },
-  ): { screen: TerminalScreen; key: string } | Refusal => {
-    const open = [...screens.keys()];
-    const named = typeof params.view === "string" ? params.view : "";
-    if (named) {
-      const found = screens.get(named);
-      if (!found) {
-        return {
-          ok: false,
-          code: "TARGET_NOT_FOUND",
-          message: t("terminal.noSuchView", app.locale()),
-          data: { view: named, open },
-        };
-      }
-      return { screen: found.screen, key: named };
-    }
-    const pane = context?.pane ?? "";
-    const here = pane ? screens.get(pane) : undefined;
-    if (here) return { screen: here.screen, key: pane };
-    if (screens.size === 1) {
-      const [key, only] = [...screens.entries()][0];
-      return { screen: only.screen, key };
-    }
-    return screens.size === 0
-      ? { ok: false, code: "TARGET_NOT_FOUND", message: t("terminal.noSession", app.locale()) }
-      : {
-          ok: false,
-          code: "AMBIGUOUS",
-          message: t("terminal.ambiguous", app.locale()),
-          data: { open },
-        };
-  };
-
-  const viewParam = {
-    type: "string",
-    description: sentence("terminal.param.view"),
-  };
-
-  register(app, ctx, "status", {
-    description: sentence("terminal.status.description"),
-    params: { view: viewParam },
-    returns: "{ view, phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
-    message: () => sentence("terminal.status.answer"),
-    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      return {
-        ...found.screen.status(),
-        ...terminalResizeStatus({
-          pane: found.key, session: found.screen.session() ?? 0, hostPixels: found.screen.hostPixels(),
-          requested: found.screen.requestedSize(), rendered: found.screen.size(),
-          operation: found.screen.status().phase, diagnostics: await binding.diagnostics(),
-        }),
-      };
-    },
-  });
-
-  register(app, ctx, "archive", {
-    description: sentence("terminal.recovery.description"),
-    params: { view: viewParam },
-    returns: "{ archived, generation, uptoSeq, bytes }",
-    message: () => sentence("terminal.recovery.answer"),
-    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      const response = await binding.sidecarRequest({ op: "archive", pane: found.key });
-      return response.ok === true ? { archived: true, ...(response.data as object) } : response;
-    },
-  });
-
-  register(app, ctx, "wait", {
-    description: sentence("terminal.status.description"),
-    params: {
-      phase: {
-        type: "string", required: true,
-        enum: ["initializing", "preparing-recovery", "applying-snapshot", "attaching-live-stream", "live", "archived", "degraded-tail", "blocked", "closed"],
-        description: sentence("terminal.status.description"),
+export function activate(context: ActivateContext): void {
+  const app = context.app;
+  const viewParam = { type: "string", description: sentence("terminal.param.view") };
+  activateProviderTerminalPlugin(app, context.subscriptions, {
+    pluginId: "soksak-plugin-terminal-xterm",
+    engineId: "vt100",
+    providerSidecar: "terminal-vt100",
+    programId: "terminal-xterm",
+    label: sentence("terminal.label"),
+    renderer: createXtermRendererAdapter(),
+    extensions: [
+      {
+        name: "exec", danger: "inject",
+        params: { cmd: { type: "string", required: true, description: sentence("terminal.param.cmd") }, view: viewParam },
+        handler(params, screen) {
+          const cmd = typeof params.cmd === "string" ? params.cmd : "";
+          if (!screen?.writable) return { sent: false };
+          screen.send(`${cmd}\r`);
+          return { view: screen.pane, sent: cmd.length + 1 };
+        },
       },
-      timeoutMs: { type: "number", default: 10000, description: sentence("terminal.status.description") },
-      contains: { type: "string", description: sentence("terminal.read.description") },
-      cols: { type: "number", description: sentence("terminal.status.description") },
-      colsLessThan: { type: "number", description: sentence("terminal.status.description") },
-      rows: { type: "number", description: sentence("terminal.status.description") },
-      view: viewParam,
-    },
-    returns: "{ phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
-    message: () => sentence("terminal.status.answer"),
-    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      const phase = String(params.phase) as TerminalPluginPublicStatus["phase"];
-      const timeoutMs = typeof params.timeoutMs === "number" ? params.timeoutMs : 10000;
-      return {
-        ...await waitForTerminalConditions({
-          status: found.screen.statusController, phase,
-          contains: typeof params.contains === "string" && params.contains !== ""
-            ? params.contains : undefined,
-          timeoutMs, waitForText: found.screen.waitForText,
-          size: {
-            ...(typeof params.cols === "number" ? { cols: params.cols } : {}),
-            ...(typeof params.colsLessThan === "number" ? { colsLessThan: params.colsLessThan } : {}),
-            ...(typeof params.rows === "number" ? { rows: params.rows } : {}),
-          },
-          waitForSize: found.screen.waitForSize,
-        }),
-        ...found.screen.size(),
-      };
-    },
-  });
-
-  register(app, ctx, "recovery-status", {
-    description: sentence("terminal.recovery.description"),
-    params: { view: viewParam },
-    returns: "{ view, phase, recoveryOutcome, fidelity, failure }",
-    message: () => sentence("terminal.recovery.answer"),
-    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      const status = found.screen.status();
-      return {
-        ...status,
-        ...terminalResizeStatus({
-          pane: found.key, session: found.screen.session() ?? 0, hostPixels: found.screen.hostPixels(),
-          requested: found.screen.requestedSize(), rendered: found.screen.size(),
-          operation: status.phase, diagnostics: await binding.diagnostics(),
-        }),
-      };
-    },
-  });
-
-  register(app, ctx, "focus", {
-    description: sentence("terminal.focus.description"),
-    params: { view: viewParam },
-    returns: "{ view, focused }",
-    message: () => sentence("terminal.focus.answer"),
-    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      return { view: found.key, focused: found.screen.focus() };
-    },
-  });
-
-  register(app, ctx, "send", {
-    description: sentence("terminal.send.description"),
-    params: { data: { type: "string", description: sentence("terminal.param.data"), required: true }, view: viewParam },
-    returns: "{ sent, view }",
-    danger: "inject",
-    message: () => sentence("terminal.sent"),
-    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const data = typeof params.data === "string" ? params.data : "";
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      if (!found.screen.writable()) return { sent: false, view: found.key };
-      found.screen.send(data);
-      return { sent: data.length, view: found.key };
-    },
-  });
-
-  register(app, ctx, "read", {
-    description: sentence("terminal.read.description"),
-    params: {
-      lines: { type: "number", description: sentence("terminal.param.lines") },
-      view: viewParam,
-    },
-    returns: "{ view, text }",
-    message: (d: Record<string, unknown>) =>
-      t("terminal.read.answer", app.locale()).replace(
-        "{n}",
-        String(String(d.text ?? "").length),
-      ),
-    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      if (!found.screen.writable()) return { sent: false, view: found.key };
-      const lines = typeof params.lines === "number" ? params.lines : undefined;
-      return { view: found.key, text: found.screen.read(lines) };
-    },
-  });
-
-  register(app, ctx, "exec", {
-    description: sentence("terminal.exec.description"),
-    params: {
-      cmd: { type: "string", description: sentence("terminal.param.cmd"), required: true },
-      view: viewParam,
-    },
-    returns: "{ view, sent }",
-    danger: "inject",
-    message: () => sentence("terminal.exec.answer"),
-    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const cmd = typeof params.cmd === "string" ? params.cmd : "";
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      // The Enter is what runs it. Sending the line alone leaves it typed and
-      // unrun, and the caller reads a prompt that looks like a finished command.
-      found.screen.send(`${cmd}\r`);
-      return { view: found.key, sent: cmd.length + 1 };
-    },
-  });
-
-  register(app, ctx, "cwd", {
-    description: sentence("terminal.cwd.description"),
-    params: { view: viewParam },
-    returns: "{ view, cwd }",
-    message: (d: Record<string, unknown>) =>
-      t("terminal.cwd.answer", app.locale()).replace("{cwd}", String(d.cwd ?? "—")),
-    handler: (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      // Absent means the shell has not reported one — no integration, or not yet.
-      // Answering a guess here would be answering the wrong directory.
-      return { view: found.key, cwd: app.terminal?.getCwd?.(found.key) ?? null };
-    },
-  });
-
-  register(app, ctx, "benchmark.parser", {
-    description: sentence("terminal.benchmark.description"),
-    params: {
-      mode: {
-        type: "string",
-        enum: ["printable", "adversarial"],
-        default: "printable",
-        description: sentence("terminal.benchmark.param.mode"),
+      {
+        name: "cwd", params: { view: viewParam },
+        handler(_params, screen) {
+          return { view: screen?.pane ?? null, cwd: screen ? app.terminal?.getCwd?.(screen.pane) ?? null : null };
+        },
       },
-      bytes: {
-        type: "number",
-        default: 1_048_576,
-        description: sentence("terminal.benchmark.param.bytes"),
+      {
+        name: "benchmark.parser",
+        params: {
+          mode: { type: "string", enum: ["printable", "adversarial"], default: "printable", description: sentence("terminal.benchmark.param.mode") },
+          bytes: { type: "number", default: 1_048_576, description: sentence("terminal.benchmark.param.bytes") },
+          repetitions: { type: "number", default: 3, description: sentence("terminal.benchmark.param.repetitions") },
+          view: viewParam,
+        },
+        async handler(params, screen) {
+          const mode = params.mode ?? "printable";
+          const bytes = params.bytes ?? 1_048_576;
+          const repetitions = params.repetitions ?? 3;
+          if (
+            (mode !== "printable" && mode !== "adversarial") ||
+            !Number.isInteger(bytes) || Number(bytes) < 1 || Number(bytes) > 16 * 1024 * 1024 ||
+            !Number.isInteger(repetitions) || Number(repetitions) < 1 || Number(repetitions) > 20
+          ) {
+            return { ok: false, code: "INVALID_PARAMS", message: t("terminal.benchmark.invalid", app.locale()) };
+          }
+          if (!screen) return { ok: false, code: "TARGET_NOT_FOUND" };
+          const measured = await (screen.presenter as XtermPresenter).benchmark({
+            mode, bytes: Number(bytes), repetitions: Number(repetitions),
+          });
+          return { view: screen.pane, ...measured };
+        },
       },
-      repetitions: {
-        type: "number",
-        default: 3,
-        description: sentence("terminal.benchmark.param.repetitions"),
-      },
-      view: viewParam,
-    },
-    returns: "{ engine, view, mode, bytesPerSample, repetitions, samplesMs, elapsedMs, totalBytes, p50Ms, p95Ms, maxMs, throughputMiBps, cols, rows }",
-    message: (data: Record<string, unknown>) =>
-      t("terminal.benchmark.answer", app.locale())
-        .replace("{throughput}", Number(data.throughputMiBps ?? 0).toFixed(2)),
-    handler: async (params: Record<string, unknown>, context?: { pane?: string }) => {
-      const mode = params.mode ?? "printable";
-      const bytes = params.bytes ?? 1_048_576;
-      const repetitions = params.repetitions ?? 3;
-      if (
-        (mode !== "printable" && mode !== "adversarial") ||
-        !Number.isInteger(bytes) || Number(bytes) < 1 || Number(bytes) > 16 * 1024 * 1024 ||
-        !Number.isInteger(repetitions) || Number(repetitions) < 1 || Number(repetitions) > 20
-      ) {
-        return {
-          ok: false,
-          code: "INVALID_PARAMS",
-          message: t("terminal.benchmark.invalid", app.locale()),
-        };
-      }
-      const found = target(params, context);
-      if (isRefusal(found)) return found;
-      const measured = await found.screen.benchmark({
-        mode,
-        bytes: Number(bytes),
-        repetitions: Number(repetitions),
-      });
-      return { view: found.key, ...measured };
-    },
+    ],
   });
 }
-
-function register(
-  app: TerminalHost,
-  ctx: ActivateContext,
-  name: string,
-  spec: Record<string, unknown>,
-): void {
-  const registration = app.commands.register(name, spec);
-  if (registration) ctx.subscriptions.push(registration);
-}
-
-/** This view's own identity, which is what keys its session.
- *
- *  viewId, not paneId: the host's paneId names a terminal a view *follows* for
- *  its working directory, which is what a file tree beside a terminal reads. A
- *  content view keying its shell by that would open one session for two tabs,
- *  and with no such terminal it would key by nothing at all. */
-function sessionKeyOf(viewContext: unknown): string {
-  const context = viewContext as { viewId?: unknown } | null;
-  return typeof context?.viewId === "string" ? context.viewId : "";
-}
-
-/** The PTY sidecar binding declared by this plugin. */
-const PTY_SIDECAR = "pty";
-
-/** The provider sidecar that keeps a screen so a reopened pane returns warm.
- *
- *  A name, not an implementation: the manifest declares the interface
- *  `soksak-spec-sidecar-terminal`, and vt100, alacritty, ghostty and wezterm each implement it.
- *  Which one is installed under this name is the home's answer, never this plugin's. */
-const RESTORE_SIDECAR = "terminal-vt100";
-const CHECKPOINT_KEY = "terminal-checkpoint-key-v1";
-
-/** Drives shells through the declared sidecar and provides host observation.
- *
- *  Every request below is opaque to the host: it opens the sidecar this manifest declared, checks that
- *  what is installed implements the contract that was declared, and relays. What the requests mean
- *  is this plugin's contract with that sidecar.
- *
- *  The host is fed on purpose. It decodes OSC 7/133/633 out of the same bytes the screen gets, and
- *  the only reason it can is that this code hands them over — the shell is a separate process now,
- *  and nothing passes through the application on the way.
- */
-export function ptyBinding(app: TerminalHost): TerminalBinding {
-  const shared = createTerminalSessionBinding(app, {
-    ptySidecar: PTY_SIDECAR,
-    providerSidecar: RESTORE_SIDECAR,
-    checkpointKey: CHECKPOINT_KEY,
-  });
-  return {
-    ...shared,
-    sidecarRequest: shared.providerRequest,
-    registerIo: (paneId, io) =>
-      app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {} },
-    async traceInput() {},
-  };
-}
-
-/** The provider sidecar this plugin declares for restoring a screen. */
