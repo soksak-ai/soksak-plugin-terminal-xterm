@@ -13,8 +13,8 @@
     "verify": "pnpm typecheck && pnpm test && pnpm build && git diff --exit-code -- ../main.js"
   },
   "dependencies": {
-    "@soksak/soksak-contract-plugin-terminal": "file:../../../soksak-contracts/soksak-contract-plugin-terminal",
-    "@soksak/soksak-kit-plugin-terminal": "file:../../../soksak-kits/soksak-kit-plugin-terminal",
+    "@soksak/soksak-contract-plugin-terminal": "github:soksak-ai/soksak-contract-plugin-terminal#29226a04c3e06da27e9a8cca7b718561c95f3ae4",
+    "@soksak/soksak-kit-plugin-terminal": "github:soksak-ai/soksak-kit-plugin-terminal#66247eb4eb80e18d8e1677f072dc91f614a5e133",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/xterm": "^5.5.0",
     "xterm-addon-webkit-ime": "github:min-median-max/xterm-addon-webkit-ime#4d00ed700ee26f58250955f68bc8b552b2996645"
