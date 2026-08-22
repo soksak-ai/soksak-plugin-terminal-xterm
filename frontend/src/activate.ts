@@ -2,6 +2,7 @@ import { sentence, t } from "./i18n";
 import { mountTerminal, type TerminalBinding, type TerminalScreen } from "./terminal";
 import {
   createTerminalSessionBinding, terminalResizeStatus, waitForTerminalConditions,
+  type TerminalLayoutEvents,
 } from "@soksak/soksak-kit-plugin-terminal";
 import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
 
@@ -204,7 +205,10 @@ export function activate(ctx: ActivateContext): void {
         ? (status as (s: { code: string; message?: string } | null) => void)
         : () => {};
       screens.set(key, {
-        screen: mountTerminal(container, key, binding, setStatus),
+        screen: mountTerminal(
+          container, key, binding, setStatus,
+          app.events?.on ? { on: (_event, callback) => app.events!.on!("layout.reflow", callback) } : undefined,
+        ),
         container,
         setStatus,
       });

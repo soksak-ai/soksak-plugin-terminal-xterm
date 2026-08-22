@@ -8,7 +8,8 @@ import { observeTerminalTheme, readTerminalTheme } from "./theme";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
 import {
-  createTerminalStatusController, type TerminalStatusController,
+  createTerminalStatusController, observeTerminalLayout,
+  type TerminalLayoutEvents, type TerminalStatusController,
 } from "@soksak/soksak-kit-plugin-terminal";
 import {
   createRendererPayload,
@@ -112,6 +113,7 @@ export function mountTerminal(
   id: string,
   binding: TerminalBinding,
   reportStatus: (status: TerminalMountStatus) => void = () => undefined,
+  layoutEvents?: TerminalLayoutEvents,
 ): TerminalScreen {
   host.dataset.node = "terminal-root";
   // Once per document, before xterm builds its DOM. Without these rules the
@@ -371,8 +373,7 @@ export function mountTerminal(
       resizeNow();
     });
   };
-  const observer = new ResizeObserver(scheduleResize);
-  observer.observe(host);
+  const observer = observeTerminalLayout({ element: host, resized: scheduleResize, events: layoutEvents });
   const capturePrepare = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
   window.addEventListener("soksak:capture-prepare", capturePrepare);
   const input = terminal.onData((data) => {
@@ -384,7 +385,7 @@ export function mountTerminal(
   const stop = (): void => {
     if (disposed) return;
     disposed = true;
-    observer.disconnect();
+    observer.dispose();
     window.removeEventListener("soksak:capture-prepare", capturePrepare);
     if (resizeFrame !== null) cancelAnimationFrame(resizeFrame);
     stopTheme();
