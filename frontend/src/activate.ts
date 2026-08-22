@@ -314,7 +314,7 @@ export function activate(ctx: ActivateContext): void {
       return {
         ...found.screen.status(),
         ...terminalResizeStatus({
-          pane: found.key, session: currentSessionId ?? 0, hostPixels: found.screen.hostPixels(),
+          pane: found.key, session: found.screen.session() ?? 0, hostPixels: found.screen.hostPixels(),
           requested: found.screen.requestedSize(), rendered: found.screen.size(),
           operation: found.screen.status().phase, diagnostics: await binding.diagnostics(),
         }),
@@ -378,7 +378,7 @@ export function activate(ctx: ActivateContext): void {
       return {
         ...status,
         ...terminalResizeStatus({
-          pane: found.key, session: currentSessionId ?? 0, hostPixels: found.screen.hostPixels(),
+          pane: found.key, session: found.screen.session() ?? 0, hostPixels: found.screen.hostPixels(),
           requested: found.screen.requestedSize(), rendered: found.screen.size(),
           operation: status.phase, diagnostics: await binding.diagnostics(),
         }),
@@ -522,10 +522,6 @@ export function activate(ctx: ActivateContext): void {
   });
 }
 
-// The session the last mount opened, for the paths that address the shell
-// directly rather than the screen in front of it.
-let currentSessionId: number | null = null;
-
 function register(
   app: TerminalHost,
   ctx: ActivateContext,
@@ -576,11 +572,6 @@ export function ptyBinding(app: TerminalHost): TerminalBinding {
   });
   return {
     ...shared,
-    async open(paneId, cols, rows, replay, observerToken) {
-      const session = await shared.open(paneId, cols, rows, replay, observerToken);
-      currentSessionId = session;
-      return session;
-    },
     sidecarRequest: shared.providerRequest,
     registerIo: (paneId, io) =>
       app.terminal?.registerIo?.(paneId, io) ?? { dispose: () => {} },

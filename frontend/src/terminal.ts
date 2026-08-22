@@ -86,6 +86,7 @@ export interface TerminalScreen {
   size: () => { cols: number; rows: number };
   hostPixels: () => { width: number; height: number };
   requestedSize: () => { cols: number; rows: number } | null;
+  session: () => TerminalHandle | null;
   wait: (phases: readonly TerminalPluginPublicStatus["phase"][], timeoutMs: number) => Promise<TerminalPluginPublicStatus>;
   waitForText: (contains: string, timeoutMs: number) => Promise<string>;
   statusController: TerminalStatusController;
@@ -455,6 +456,7 @@ export function mountTerminal(
     size: () => ({ cols: terminal.cols, rows: terminal.rows }),
     hostPixels: () => ({ width: host.clientWidth, height: host.clientHeight }),
     requestedSize: () => requestedSize,
+    session: () => handle,
     wait: (phases, timeoutMs) => statusController.wait(phases, timeoutMs),
     waitForText: (contains, timeoutMs) => {
       const current = () => readScreen(terminal);
