@@ -7470,7 +7470,7 @@ var plugin_default = {
     en: "Terminal",
     ko: "\uD130\uBBF8\uB110"
   },
-  version: "0.0.1",
+  version: "0.0.3",
   appVersionRequirement: "0.0.1",
   description: {
     en: "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
