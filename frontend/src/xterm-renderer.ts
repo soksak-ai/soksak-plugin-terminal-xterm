@@ -45,6 +45,10 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   const input = terminal.onData((data) => routeXtermData(ime, write, data));
   const parsed = new Set<() => void>();
   const notifyParsed = () => { for (const listener of parsed) listener(); };
+  const output = createCoalescedXtermWriter(
+    (bytes, complete) => terminal.write(bytes, complete),
+    notifyParsed,
+  );
   const waitForText = createTerminalTextWait(
     () => readScreen(terminal),
     (callback) => { parsed.add(callback); return { dispose: () => { parsed.delete(callback); } }; },
@@ -58,10 +62,10 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     root: container, fit, size: () => ({ cols: terminal.cols, rows: terminal.rows }),
     applySnapshot: async (snapshot) => {
       if (typeof snapshot.paint !== "string") throw new Error("terminal snapshot has no paint");
-      await new Promise<void>((resolve) => terminal.write(decodeBase64(snapshot.paint as string), () => { notifyParsed(); resolve(); }));
+      await output.writeAndWait(decodeBase64(snapshot.paint as string));
       terminal.refresh(0, Math.max(0, terminal.rows - 1));
     },
-    writeOutput: (bytes) => { terminal.write(bytes, notifyParsed); },
+    writeOutput: output.write,
     read: (lines) => readScreen(terminal, lines),
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
@@ -84,10 +88,55 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
-      parsed.clear(); stopTheme(); input.dispose(); ime.dispose(); terminal.dispose();
+      output.dispose(); parsed.clear(); stopTheme(); input.dispose(); ime.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
     },
   };
+}
+
+export function createCoalescedXtermWriter(
+  write: (bytes: Uint8Array, complete: () => void) => void,
+  parsed: () => void,
+): { write(bytes: Uint8Array): void; writeAndWait(bytes: Uint8Array): Promise<void>; dispose(): void } {
+  let active = false;
+  let disposed = false;
+  let pending: Array<{ bytes: Uint8Array; waiter?: () => void }> = [];
+  let activeWaiters: (() => void)[] = [];
+
+  const submit = (bytes: Uint8Array, waiter?: () => void) => {
+    if (disposed) { waiter?.(); return; }
+    if (active) { pending.push({ bytes, waiter }); return; }
+    active = true;
+    if (waiter) activeWaiters.push(waiter);
+    write(bytes, complete);
+  };
+  const complete = () => {
+    parsed();
+    const completed = activeWaiters.splice(0);
+    completed.forEach((resolve) => resolve());
+    if (disposed || pending.length === 0) { active = false; return; }
+    const next = concatBytes(pending.map((item) => item.bytes));
+    activeWaiters = pending.flatMap((item) => item.waiter ? [item.waiter] : []);
+    pending = [];
+    write(next, complete);
+  };
+  return {
+    write: (bytes) => submit(bytes),
+    writeAndWait: (bytes) => new Promise((resolve) => submit(bytes, resolve)),
+    dispose() {
+      disposed = true;
+      const pendingWaiters = pending.flatMap((item) => item.waiter ? [item.waiter] : []);
+      pending = [];
+      [...activeWaiters.splice(0), ...pendingWaiters].forEach((resolve) => resolve());
+    },
+  };
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const joined = new Uint8Array(chunks.reduce((total, chunk) => total + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; }
+  return joined;
 }
 
 export function createTerminalTextWait(
