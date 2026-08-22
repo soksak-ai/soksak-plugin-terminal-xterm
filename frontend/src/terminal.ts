@@ -8,7 +8,7 @@ import { observeTerminalTheme, readTerminalTheme } from "./theme";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
 import {
-  createTerminalStatusController, observeTerminalLayout,
+  createTerminalResizeWorker, createTerminalStatusController, observeTerminalLayout,
   waitForTerminalSize, type TerminalLayoutEvents, type TerminalSizeCondition,
   type TerminalStatusController,
 } from "@soksak/soksak-kit-plugin-terminal";
@@ -199,23 +199,27 @@ export function mountTerminal(
   });
   terminal.loadAddon(ime);
 
-  const resizeNow = () => {
+  const fitNow = () => {
     if (!host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
     fit.fit();
-    if (handle && terminal.cols > 0 && terminal.rows > 0) {
-      const size = { cols: terminal.cols, rows: terminal.rows };
-      void binding.resize(handle, size.cols, size.rows).then(
-        () => {
-          requestedSize = size;
-          host.dispatchEvent(new CustomEvent("soksak:terminal-size", { detail: size }));
-        },
-        (error: unknown) => statusController.set("blocked", {
-          recoveryOutcome: "blocked", fidelity: "unavailable",
-          failure: { code: "RESIZE_FAILED", message: String(error) },
-        }),
-      );
-    }
   };
+  const resizeWorker = createTerminalResizeWorker(async () => {
+    if (disposed || !host.isConnected || host.clientWidth <= 0 || host.clientHeight <= 0) return;
+    fitNow();
+    const owner = handle;
+    if (!owner || terminal.cols <= 0 || terminal.rows <= 0) return;
+    const size = { cols: terminal.cols, rows: terminal.rows };
+    await binding.resize(owner, size.cols, size.rows);
+    if (disposed) return;
+    requestedSize = size;
+    host.dispatchEvent(new CustomEvent("soksak:terminal-size", { detail: size }));
+  }, (error) => {
+    if (disposed) return;
+    statusController.set("blocked", {
+      recoveryOutcome: "blocked", fidelity: "unavailable",
+      failure: { code: "RESIZE_FAILED", message: String(error) },
+    });
+  });
   const setRestoreStatus = (state: string, message?: string): void => {
     for (const node of [host, terminal.element]) {
       if (!node) continue;
@@ -321,7 +325,7 @@ export function mountTerminal(
       disposed || opening || handle !== null || !host.isConnected ||
       host.clientWidth <= 0 || host.clientHeight <= 0
     ) return;
-    resizeNow();
+    fitNow();
     opening = true;
     void restore().then(async (recovery) => {
       if (recovery.kind === "archived") return null;
@@ -348,7 +352,7 @@ export function mountTerminal(
           sendInput: (data) => { void write(data); },
         });
         for (const trace of pendingTrace.splice(0)) void binding.traceInput(opened, trace);
-        resizeNow();
+        resizeWorker.request();
         terminal.refresh(0, Math.max(0, terminal.rows - 1));
         if (observerToken) {
           void binding.sidecarRequest({
@@ -375,10 +379,14 @@ export function mountTerminal(
     if (resizeFrame !== null) return;
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = null;
-      resizeNow();
+      resizeWorker.request();
     });
   };
-  const observer = observeTerminalLayout({ element: host, resized: scheduleResize, events: layoutEvents });
+  const observer = observeTerminalLayout({
+    element: host, resized: scheduleResize,
+    reflowed: () => { openWhenSized(); resizeWorker.request(); },
+    events: layoutEvents,
+  });
   const capturePrepare = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
   window.addEventListener("soksak:capture-prepare", capturePrepare);
   const input = terminal.onData((data) => {

@@ -239,6 +239,20 @@ describe("a mounted terminal", () => {
     screen.stop();
   });
 
+  it("resizes on post-commit reflow while animation frames are suspended", async () => {
+    let reflow: (() => void) | undefined;
+    const resize = vi.fn(async () => {});
+    const screen = mountTerminal(
+      mountedHost(), "pan-reflow", binding({ resize }), undefined,
+      { on: (_event, callback) => { reflow = callback; return { dispose() {} }; } },
+    );
+    await nextFrame();
+    const before = resize.mock.calls.length;
+    reflow!();
+    await vi.waitFor(() => expect(resize.mock.calls.length).toBeGreaterThan(before));
+    screen.stop();
+  });
+
   it("opens a session for the pane it was mounted for", async () => {
     const open = vi.fn(async () => SESSION);
     const screen = mountTerminal(mountedHost(), "pan-aaaaaa", binding({ open }));
