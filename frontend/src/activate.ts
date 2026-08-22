@@ -349,6 +349,9 @@ export function activate(ctx: ActivateContext): void {
       },
       timeoutMs: { type: "number", default: 10000, description: sentence("terminal.status.description") },
       contains: { type: "string", description: sentence("terminal.read.description") },
+      cols: { type: "number", description: sentence("terminal.status.description") },
+      colsLessThan: { type: "number", description: sentence("terminal.status.description") },
+      rows: { type: "number", description: sentence("terminal.status.description") },
       view: viewParam,
     },
     returns: "{ phase, pluginId, engineId, rendererId, rendererProfile, recoveryOutcome, fidelity, failure }",
@@ -364,6 +367,12 @@ export function activate(ctx: ActivateContext): void {
           contains: typeof params.contains === "string" && params.contains !== ""
             ? params.contains : undefined,
           timeoutMs, waitForText: found.screen.waitForText,
+          size: {
+            ...(typeof params.cols === "number" ? { cols: params.cols } : {}),
+            ...(typeof params.colsLessThan === "number" ? { colsLessThan: params.colsLessThan } : {}),
+            ...(typeof params.rows === "number" ? { rows: params.rows } : {}),
+          },
+          waitForSize: found.screen.waitForSize,
         }),
         ...found.screen.size(),
       };

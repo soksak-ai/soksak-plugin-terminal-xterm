@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { activate, type TerminalHost } from "./activate";
+import { TERMINAL_PLUGIN_COMMAND_SCHEMAS } from "@soksak/soksak-contract-plugin-terminal";
 
 vi.stubGlobal("matchMedia", () => ({
   matches: false, addEventListener() {}, removeEventListener() {},
@@ -18,11 +19,13 @@ describe("terminal plugin behavior contract", () => {
   it("publishes status, recovery status, focus, and operable nodes", async () => {
     let provider: { mount(container: HTMLElement, context: unknown): void } | null = null;
     const commands = new Map<string, Handler>();
+    const commandSpecs = new Map<string, Record<string, unknown>>();
     const restoreOpens: Array<Record<string, unknown> | undefined> = [];
     const host: TerminalHost = {
       ui: { registerView: (_id, value) => { provider = value; return { dispose() {} }; } },
       commands: {
         register: (name, spec) => {
+          commandSpecs.set(name, spec);
           commands.set(name, (spec as { handler: Handler }).handler);
           return { dispose() {} };
         },
@@ -94,6 +97,8 @@ describe("terminal plugin behavior contract", () => {
     expect(commands.has("status")).toBe(true);
     expect(commands.has("recovery-status")).toBe(true);
     expect(commands.has("focus")).toBe(true);
+    expect(Object.keys(commandSpecs.get("wait")!.params as Record<string, unknown>).sort())
+      .toEqual(Object.keys(TERMINAL_PLUGIN_COMMAND_SCHEMAS.wait.input.properties).sort());
 
     const status = await commands.get("status")!({ view: "tab-contract" });
     expect(status).toMatchObject({

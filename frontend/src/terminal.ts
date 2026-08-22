@@ -9,7 +9,8 @@ import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 import type { TerminalPluginPublicStatus } from "@soksak/soksak-contract-plugin-terminal";
 import {
   createTerminalStatusController, observeTerminalLayout,
-  type TerminalLayoutEvents, type TerminalStatusController,
+  waitForTerminalSize, type TerminalLayoutEvents, type TerminalSizeCondition,
+  type TerminalStatusController,
 } from "@soksak/soksak-kit-plugin-terminal";
 import {
   createRendererPayload,
@@ -90,6 +91,7 @@ export interface TerminalScreen {
   session: () => TerminalHandle | null;
   wait: (phases: readonly TerminalPluginPublicStatus["phase"][], timeoutMs: number) => Promise<TerminalPluginPublicStatus>;
   waitForText: (contains: string, timeoutMs: number) => Promise<string>;
+  waitForSize: (condition: TerminalSizeCondition, timeoutMs: number) => Promise<{ cols: number; rows: number }>;
   statusController: TerminalStatusController;
 }
 
@@ -203,7 +205,10 @@ export function mountTerminal(
     if (handle && terminal.cols > 0 && terminal.rows > 0) {
       const size = { cols: terminal.cols, rows: terminal.rows };
       void binding.resize(handle, size.cols, size.rows).then(
-        () => { requestedSize = size; },
+        () => {
+          requestedSize = size;
+          host.dispatchEvent(new CustomEvent("soksak:terminal-size", { detail: size }));
+        },
         (error: unknown) => statusController.set("blocked", {
           recoveryOutcome: "blocked", fidelity: "unavailable",
           failure: { code: "RESIZE_FAILED", message: String(error) },
@@ -471,6 +476,9 @@ export function mountTerminal(
         });
       });
     },
+    waitForSize: (condition, timeoutMs) => waitForTerminalSize(
+      host, condition, timeoutMs, () => ({ cols: terminal.cols, rows: terminal.rows }),
+    ),
   };
 }
 
