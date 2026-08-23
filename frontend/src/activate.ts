@@ -21,7 +21,8 @@ export function activate(context: ActivateContext): void {
   activateProviderTerminalPlugin(app, context.subscriptions, {
     pluginId: "soksak-plugin-terminal-xterm",
     engineId: "vt100",
-    recoverySidecar: "recovery",
+    ptySidecarId: "soksak-sidecar-pty",
+    terminalSidecarId: "soksak-sidecar-terminal-vt100",
     programId: "terminal-xterm",
     label: sentence("terminal.label"),
     renderer: createXtermRendererAdapter(),
