@@ -36,8 +36,8 @@ describe("terminal plugin behavior contract", () => {
       secrets: { generate: vi.fn(async () => ({ created: true })) },
       sidecar: {
         open: async (name, opts) => {
-          if (name !== "pty") restoreOpens.push(opts);
-          return name === "pty" ? ({
+          if (name !== "soksak-sidecar-pty") restoreOpens.push(opts);
+          return name === "soksak-sidecar-pty" ? ({
           send: async (request) => ({
             id: "reply", ok: true, result: { code: "OK", data:
               request.command === "pty.pane"
