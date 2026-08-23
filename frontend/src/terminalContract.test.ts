@@ -50,7 +50,7 @@ describe("terminal plugin behavior contract", () => {
             emit = handlers.onBytes;
             return {
             answer: { id: "reply", ok: true, result: { code: "OK", data: { startSeq: 0 } } },
-            close: { dispose() {} },
+            close: { dispose() {}, settled: Promise.resolve() },
             };
           },
           close: async () => {},
@@ -69,7 +69,7 @@ describe("terminal plugin behavior contract", () => {
             },
               }),
           }),
-          stream: async () => ({ answer: {}, close: { dispose() {} } }),
+          stream: async () => ({ answer: {}, close: { dispose() {}, settled: Promise.resolve() } }),
           close: async () => {},
         });
         },

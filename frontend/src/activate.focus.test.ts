@@ -24,7 +24,7 @@ describe("terminal view focus boundary", () => {
       sidecar: {
         open: async () => ({
           send: async () => ({ ok: true, result: { code: "OK", data: { session: 1, held: false } } }),
-          stream: async () => ({ answer: { ok: true }, close: { dispose() {} } }),
+          stream: async () => ({ answer: { ok: true }, close: { dispose() {}, settled: Promise.resolve() } }),
           close: async () => {},
         }),
       },
