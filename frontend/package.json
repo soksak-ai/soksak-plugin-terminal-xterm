@@ -2,7 +2,8 @@
   "name": "@soksak/soksak-plugin-terminal-xterm",
   "version": "0.0.16",
   "private": true,
-  "pnpm": { "onlyBuiltDependencies": ["esbuild"] },
+  "engines": { "node": "26.7.0" },
+  "packageManager": "pnpm@11.22.0",
   "type": "module",
   "exports": {
     ".": "./src/index.ts"
@@ -15,16 +16,16 @@
   },
   "dependencies": {
     "@soksak/soksak-contract-plugin-terminal": "github:soksak-ai/soksak-contract-plugin-terminal#39fe76a56b520f15ba8256620b3b05d89ff34a9d",
-    "@soksak/soksak-kit-plugin-terminal": "github:soksak-ai/soksak-kit-plugin-terminal#9eaa90717d90c6d1fea455bdc013b70e8cf29e82",
-    "@xterm/addon-fit": "^0.10.0",
-    "@xterm/xterm": "^5.5.0",
+    "@soksak/soksak-kit-plugin-terminal": "github:soksak-ai/soksak-kit-plugin-terminal#c7605d9a08ecaa202b2ade18ae852987dbb4c090",
+    "@xterm/addon-fit": "0.10.0",
+    "@xterm/xterm": "5.5.0",
     "xterm-addon-webkit-ime": "github:min-median-max/xterm-addon-webkit-ime#4d00ed700ee26f58250955f68bc8b552b2996645"
   },
   "devDependencies": {
-    "@types/node": "^24.10.0",
-    "esbuild": "^0.28.2",
-    "jsdom": "^30.0.1",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "@types/node": "26.2.0",
+    "esbuild": "0.28.2",
+    "jsdom": "30.0.1",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
   }
 }
