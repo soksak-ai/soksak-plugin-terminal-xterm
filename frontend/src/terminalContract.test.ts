@@ -21,6 +21,7 @@ describe("terminal plugin behavior contract", () => {
     const commands = new Map<string, Handler>();
     const commandSpecs = new Map<string, Record<string, unknown>>();
     const restoreOpens: Array<Record<string, unknown> | undefined> = [];
+    let emit: ((bytes: Uint8Array) => void) | undefined;
     const host: TerminalHost = {
       ui: { registerView: (_id, value) => { provider = value; return { dispose() {} }; } },
       commands: {
@@ -45,10 +46,13 @@ describe("terminal plugin behavior contract", () => {
                 : { session: 1, created: true, startSeq: 0 },
             },
           }),
-          stream: async () => ({
+          stream: async (_request, handlers) => {
+            emit = handlers.onBytes;
+            return {
             answer: { id: "reply", ok: true, result: { code: "OK", data: { startSeq: 0 } } },
             close: { dispose() {} },
-          }),
+            };
+          },
           close: async () => {},
         }) : ({
           send: async (request) => ({
@@ -111,8 +115,15 @@ describe("terminal plugin behavior contract", () => {
       hostPixels: { width: 800, height: 600 },
       requested: expect.objectContaining({ cols: expect.any(Number), rows: expect.any(Number) }),
       pty: null, recovery: null,
-      rendered: expect.objectContaining({ cols: expect.any(Number), rows: expect.any(Number) }),
+      rendered: null,
       operation: expect.any(String),
+    });
+    emit!(new Uint8Array([65]));
+    await vi.waitFor(async () => {
+      const progressed = await commands.get("status")!({ view: "tab-contract" });
+      expect(progressed.rendered).toEqual(expect.objectContaining({
+        cols: expect.any(Number), rows: expect.any(Number), outputSequence: 1,
+      }));
     });
     expect(status).not.toHaveProperty("source");
     expect(status).not.toHaveProperty("cols");

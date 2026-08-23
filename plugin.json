@@ -4,7 +4,7 @@
     "en": "Terminal",
     "ko": "터미널"
   },
-  "version": "0.0.19",
+  "version": "0.0.20",
   "appVersionRequirement": "0.0.1",
   "description": {
     "en": "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
@@ -21,7 +21,7 @@
     "terminal"
   ],
   "implements": [
-    { "id": "soksak-spec-plugin-terminal", "version": "0.0.3" }
+    { "id": "soksak-spec-plugin-terminal", "version": "0.0.4" }
   ],
   "contributes": {
     "commands": [
@@ -148,10 +148,10 @@
       },
       {
         "id": "soksak-sidecar-terminal-vt100",
-        "version": "0.0.11",
-        "url": "https://github.com/soksak-ai/soksak-sidecar-terminal-vt100/releases/download/v0.0.11/release.json",
+        "version": "0.0.12",
+        "url": "https://github.com/soksak-ai/soksak-sidecar-terminal-vt100/releases/download/v0.0.12/release.json",
         "size": 3182,
-        "sha256": "542675db960429783f0eeccdab1ce5ff3f1c545eabd5009631dde37920a483f2"
+        "sha256": "8d42f43323e24ae1923e1874d48f8c9060a4cbc70a532fec51f7aab096b1f83d"
       }
     ]
   }

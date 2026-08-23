@@ -65,7 +65,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       await output.writeAndWait(decodeBase64(snapshot.paint as string));
       terminal.refresh(0, Math.max(0, terminal.rows - 1));
     },
-    writeOutput: output.write,
+    writeOutput: output.writeAndWait,
     read: (lines) => readScreen(terminal, lines),
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },

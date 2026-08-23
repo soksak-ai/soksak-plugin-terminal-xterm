@@ -47,6 +47,18 @@ describe("Xterm renderer adapter", () => {
     expect(restored).toBe(true);
   });
 
+  it("reports live output completion only after Xterm parsed it", async () => {
+    const writes: Array<{ parsed: () => void }> = [];
+    const writer = createCoalescedXtermWriter((_bytes, parsed) => { writes.push({ parsed }); }, vi.fn());
+    let applied = false;
+    const live = writer.writeAndWait(new Uint8Array([1])).then(() => { applied = true; });
+    await Promise.resolve();
+    expect(applied).toBe(false);
+    writes[0].parsed();
+    await live;
+    expect(applied).toBe(true);
+  });
+
   it("parses a 978-chunk daemon burst through the real Xterm buffer", async () => {
     const presenter = createXtermPresenter(mounted(), vi.fn());
     const tail = "SOKSAK_HIGH_OUTPUT_TAIL";
