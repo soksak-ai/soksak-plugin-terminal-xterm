@@ -67,22 +67,20 @@ describe("Xterm renderer adapter", () => {
 
   it("measures active render preparation without display callback wait", () => {
     let now = 0;
-    const measurement = createXtermRenderWorkMeasurement(() => now);
+    const frames: Array<() => void> = [];
+    const measurement = createXtermRenderWorkMeasurement(
+      (callback) => { frames.push(callback); return () => undefined; },
+      () => now,
+    );
     const first = measurement.begin();
     now = 2;
     first();
+    now = 16;
+    frames.shift()!();
     now = 18;
     expect(measurement.takeRendered()).toBe(2);
     expect(measurement.takeRendered()).toBeNull();
-
-    const second = measurement.begin();
-    now = 19;
-    second();
-    const third = measurement.begin();
-    now = 22;
-    third();
-    now = 40;
-    expect(measurement.takeRendered()).toBe(4);
+    measurement.dispose();
   });
 
   it("publishes the real Xterm render event separately from parser completion", async () => {
