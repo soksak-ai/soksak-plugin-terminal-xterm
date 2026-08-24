@@ -63,8 +63,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   terminal.textarea?.addEventListener("keydown", keyFallback, true);
   const parsed = new Set<() => void>();
   const renderedListeners = new Set<(durationMs: number) => void>();
-  let pendingRenderStartedAt: number | null = null;
-  let pendingRenderParsed = false;
+  const renderWork = createXtermRenderWorkMeasurement();
   let cursorVisible = true;
   const syncCursor = () => {
     if (!screen) return;
@@ -86,15 +85,12 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   terminal.textarea?.addEventListener("focus", syncCursor);
   terminal.textarea?.addEventListener("blur", syncCursor);
   const notifyParsed = () => {
-    pendingRenderParsed = true;
     syncCursor();
     for (const listener of parsed) listener();
   };
   const rendered = terminal.onRender(() => {
-    if (pendingRenderStartedAt === null || !pendingRenderParsed) return;
-    const durationMs = Math.max(0, performance.now() - pendingRenderStartedAt);
-    pendingRenderStartedAt = null;
-    pendingRenderParsed = false;
+    const durationMs = renderWork.takeRendered();
+    if (durationMs === null) return;
     for (const listener of renderedListeners) listener(durationMs);
   });
   const refresh = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
@@ -102,13 +98,13 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   const prepareCapture = () => refresh();
   captureWindow?.addEventListener("soksak:capture-prepare", prepareCapture);
   const output = createCoalescedXtermWriter(
-    (bytes, complete) => terminal.write(bytes, complete),
+    (bytes, complete) => {
+      const finishWork = renderWork.begin();
+      terminal.write(bytes, () => { finishWork(); complete(); });
+    },
     notifyParsed,
   );
-  const writeOutput = (bytes: Uint8Array) => {
-    pendingRenderStartedAt ??= performance.now();
-    return output.writeAndWait(bytes);
-  };
+  const writeOutput = (bytes: Uint8Array) => output.writeAndWait(bytes);
   const waitForText = createTerminalTextWait(
     () => readScreen(terminal),
     (callback) => { parsed.add(callback); return { dispose: () => { parsed.delete(callback); } }; },
@@ -159,6 +155,33 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       terminal.textarea?.removeEventListener("blur", syncCursor);
       terminal.textarea?.removeEventListener("keydown", keyFallback, true); ime.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
+    },
+  };
+}
+
+export function createXtermRenderWorkMeasurement(now: () => number = () => performance.now()): {
+  begin(): () => void;
+  takeRendered(): number | null;
+} {
+  let durationMs = 0;
+  let completed = false;
+  return {
+    begin() {
+      const startedAt = now();
+      let ended = false;
+      return () => {
+        if (ended) return;
+        ended = true;
+        durationMs += Math.max(0, now() - startedAt);
+        completed = true;
+      };
+    },
+    takeRendered() {
+      if (!completed) return null;
+      const measured = durationMs;
+      durationMs = 0;
+      completed = false;
+      return measured;
     },
   };
 }
