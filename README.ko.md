@@ -2,11 +2,13 @@
 
 `soksak-kit-plugin-terminal`에 Xterm renderer adapter를 제공하는 터미널 플러그인입니다.
 
-공통 terminal kit가 view 등록, PTY 및 복원 수명 주기, 크기 변경 조정, 공개 상태, wait와
-터미널 플러그인 계약의 모든 표준 명령을 소유합니다. 이 플러그인은 Xterm 전용 renderer,
-screen buffer, theme, 입력과 IME 동작, capture refresh, parser benchmark 및 선택적인 `exec`,
-`cwd` 명령만 소유합니다. Repository boundary test는 플러그인 내부에 수명 주기 primitive나
-render 사건 기반 text wait가 다시 들어오는 것을 거부합니다.
+공통 terminal kit가 view 등록, PTY 및 복원 수명 주기, 크기 변경 조정, 공개 상태, terminal
+theme 해석, wait와 터미널 플러그인 계약의 모든 표준 명령을 소유합니다. 이 플러그인은 Xterm
+전용 renderer adapter, screen buffer, 입력과 IME 동작, capture refresh, parser benchmark 및
+선택적인 `exec`, `cwd` 명령만 소유합니다. Adapter는 kit가 해석한 다섯 theme 역할과 contract
+palette를 Xterm option 이름으로 변환할 뿐 host theme token을 직접 읽거나 fallback 색상을
+정의하지 않습니다. Repository boundary test는 플러그인 내부에 수명 주기 primitive나 render
+사건 기반 text wait가 다시 들어오는 것을 거부합니다.
 
 PTY 출력은 순서를 보존해 Xterm에 전달합니다. 한 번에 write 하나만 진행하고 그동안 도착한
 출력은 다음 write 하나로 병합합니다. Snapshot과 live bytes는 같은 queue를 사용하며 text

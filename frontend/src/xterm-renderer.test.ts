@@ -11,10 +11,6 @@ import {
 vi.stubGlobal("matchMedia", () => ({
   matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
 }));
-for (const [name, value] of Object.entries({
-  fg: "#eeeeec", card: "#1e1e1e", acc: "#ffffff", fg3: "#555753",
-})) document.documentElement.style.setProperty(`--${name}`, value);
-
 function mounted(): HTMLElement {
   const container = document.createElement("div");
   Object.defineProperty(container, "clientWidth", { value: 800 });

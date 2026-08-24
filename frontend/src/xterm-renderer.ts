@@ -1,12 +1,21 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
-import type { TerminalPresenter, TerminalRendererAdapter } from "@soksak/soksak-kit-plugin-terminal";
+import { Terminal, type ITheme } from "@xterm/xterm";
+import {
+  bindTerminalThemeSurface,
+  observeTerminalTheme,
+  readTerminalTheme,
+  type TerminalPresenter,
+  type TerminalRendererAdapter,
+} from "@soksak/soksak-kit-plugin-terminal";
+import {
+  TERMINAL_ANSI_PALETTE,
+  type TerminalPresentationTheme,
+} from "@soksak/soksak-contract-plugin-terminal";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 
 import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { createRendererPayload, summarizeRendererSamples, type RendererBenchmarkMode } from "./rendererBenchmark";
 import { injectStyles } from "./styles";
-import { observeTerminalTheme, readTerminalTheme } from "./theme";
 
 export interface XtermBenchmarkRequest { mode: RendererBenchmarkMode; bytes: number; repetitions: number }
 export interface XtermPresenter extends TerminalPresenter {
@@ -20,20 +29,39 @@ export function createXtermRendererAdapter(): TerminalRendererAdapter {
   };
 }
 
+export function createXtermTheme(theme: TerminalPresentationTheme): ITheme {
+  const [
+    black, red, green, yellow, blue, magenta, cyan, white,
+    brightBlack, brightRed, brightGreen, brightYellow,
+    brightBlue, brightMagenta, brightCyan, brightWhite,
+  ] = TERMINAL_ANSI_PALETTE;
+  return {
+    ...theme,
+    black, red, green, yellow, blue, magenta, cyan, white,
+    brightBlack, brightRed, brightGreen, brightYellow,
+    brightBlue, brightMagenta, brightCyan, brightWhite,
+    extendedAnsi: [...TERMINAL_ANSI_PALETTE.slice(16)],
+  };
+}
+
 export function createXtermPresenter(container: HTMLElement, send: (data: string) => void): XtermPresenter {
   container.dataset.node = "terminal-root";
   injectStyles();
   const themeRoot = container.ownerDocument.documentElement;
+  bindTerminalThemeSurface(container);
   const terminal = new Terminal({
     cursorBlink: true, convertEol: true, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 13, theme: readTerminalTheme(themeRoot),
+    fontSize: 13, theme: createXtermTheme(readTerminalTheme(themeRoot)),
   });
-  const stopTheme = observeTerminalTheme(themeRoot, () => { terminal.options.theme = readTerminalTheme(themeRoot); });
+  const stopTheme = observeTerminalTheme(themeRoot, () => {
+    terminal.options.theme = createXtermTheme(readTerminalTheme(themeRoot));
+  });
   const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon); terminal.open(container);
   const screen = terminal.element;
   if (screen) {
     screen.dataset.node = "terminal-screen"; screen.setAttribute("role", "log");
     screen.setAttribute("aria-live", "polite");
+    bindTerminalThemeSurface(screen);
   }
   if (terminal.textarea) terminal.textarea.dataset.node = "terminal-input";
   const recovery = document.createElement("span");
