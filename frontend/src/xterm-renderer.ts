@@ -99,8 +99,6 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     for (const listener of renderedListeners) listener(durationMs);
   });
   const refresh = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
-  const prepareCapture = () => refresh();
-  captureWindow.addEventListener("soksak:capture-prepare", prepareCapture);
   const output = createCoalescedXtermWriter(
     (bytes, complete) => {
       const finishWork = renderWork.begin();
@@ -153,7 +151,6 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
-      captureWindow.removeEventListener("soksak:capture-prepare", prepareCapture);
       renderWork.dispose();
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
