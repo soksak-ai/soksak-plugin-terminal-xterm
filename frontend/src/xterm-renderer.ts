@@ -62,6 +62,9 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   };
   terminal.textarea?.addEventListener("keydown", keyFallback, true);
   const parsed = new Set<() => void>();
+  const renderedListeners = new Set<(durationMs: number) => void>();
+  let pendingRenderStartedAt: number | null = null;
+  let pendingRenderParsed = false;
   let cursorVisible = true;
   const syncCursor = () => {
     if (!screen) return;
@@ -82,11 +85,26 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   const cursorMoved = terminal.onCursorMove(syncCursor);
   terminal.textarea?.addEventListener("focus", syncCursor);
   terminal.textarea?.addEventListener("blur", syncCursor);
-  const notifyParsed = () => { syncCursor(); for (const listener of parsed) listener(); };
+  const notifyParsed = () => {
+    pendingRenderParsed = true;
+    syncCursor();
+    for (const listener of parsed) listener();
+  };
+  const rendered = terminal.onRender(() => {
+    if (pendingRenderStartedAt === null || !pendingRenderParsed) return;
+    const durationMs = Math.max(0, performance.now() - pendingRenderStartedAt);
+    pendingRenderStartedAt = null;
+    pendingRenderParsed = false;
+    for (const listener of renderedListeners) listener(durationMs);
+  });
   const output = createCoalescedXtermWriter(
     (bytes, complete) => terminal.write(bytes, complete),
     notifyParsed,
   );
+  const writeOutput = (bytes: Uint8Array) => {
+    pendingRenderStartedAt ??= performance.now();
+    return output.writeAndWait(bytes);
+  };
   const waitForText = createTerminalTextWait(
     () => readScreen(terminal),
     (callback) => { parsed.add(callback); return { dispose: () => { parsed.delete(callback); } }; },
@@ -101,10 +119,14 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     root: container, fit, size: () => ({ cols: terminal.cols, rows: terminal.rows }),
     applySnapshot: async (snapshot) => {
       if (typeof snapshot.paint !== "string") throw new Error("terminal snapshot has no paint");
-      await output.writeAndWait(decodeBase64(snapshot.paint as string));
+      await writeOutput(decodeBase64(snapshot.paint as string));
       terminal.refresh(0, Math.max(0, terminal.rows - 1));
     },
-    writeOutput: output.writeAndWait,
+    writeOutput,
+    onRendered(callback) {
+      renderedListeners.add(callback);
+      return { dispose: () => { renderedListeners.delete(callback); } };
+    },
     read: (lines) => readScreen(terminal, lines),
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
@@ -127,7 +149,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
-      output.dispose(); parsed.clear(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
+      output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
       terminal.textarea?.removeEventListener("keydown", keyFallback, true); ime.dispose(); terminal.dispose();
