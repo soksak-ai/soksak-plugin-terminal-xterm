@@ -30,9 +30,10 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   });
   const stopTheme = observeTerminalTheme(themeRoot, () => { terminal.options.theme = readTerminalTheme(themeRoot); });
   const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon); terminal.open(container);
-  if (terminal.element) {
-    terminal.element.dataset.node = "terminal-screen"; terminal.element.setAttribute("role", "log");
-    terminal.element.setAttribute("aria-live", "polite");
+  const screen = terminal.element;
+  if (screen) {
+    screen.dataset.node = "terminal-screen"; screen.setAttribute("role", "log");
+    screen.setAttribute("aria-live", "polite");
   }
   if (terminal.textarea) terminal.textarea.dataset.node = "terminal-input";
   const recovery = document.createElement("span");
@@ -44,7 +45,27 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   terminal.loadAddon(ime);
   const input = terminal.onData((data) => routeXtermData(ime, write, data));
   const parsed = new Set<() => void>();
-  const notifyParsed = () => { for (const listener of parsed) listener(); };
+  let cursorVisible = true;
+  const syncCursor = () => {
+    if (!screen) return;
+    const focused = terminal.textarea?.ownerDocument.activeElement === terminal.textarea;
+    screen.dataset.cursorVisible = String(cursorVisible);
+    screen.dataset.cursorActive = String(cursorVisible && focused);
+    screen.dataset.cursorRow = String(terminal.buffer.active.cursorY);
+    screen.dataset.cursorColumn = String(terminal.buffer.active.cursorX);
+  };
+  const cursorHidden = terminal.parser.registerCsiHandler({ prefix: "?", final: "l" }, (params) => {
+    if (params.flat().includes(25)) cursorVisible = false;
+    return false;
+  });
+  const cursorShown = terminal.parser.registerCsiHandler({ prefix: "?", final: "h" }, (params) => {
+    if (params.flat().includes(25)) cursorVisible = true;
+    return false;
+  });
+  const cursorMoved = terminal.onCursorMove(syncCursor);
+  terminal.textarea?.addEventListener("focus", syncCursor);
+  terminal.textarea?.addEventListener("blur", syncCursor);
+  const notifyParsed = () => { syncCursor(); for (const listener of parsed) listener(); };
   const output = createCoalescedXtermWriter(
     (bytes, complete) => terminal.write(bytes, complete),
     notifyParsed,
@@ -57,6 +78,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     if (container.isConnected && container.clientWidth > 0 && container.clientHeight > 0) fitAddon.fit();
   };
   fit();
+  syncCursor();
 
   return {
     root: container, fit, size: () => ({ cols: terminal.cols, rows: terminal.rows }),
@@ -88,7 +110,9 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
-      output.dispose(); parsed.clear(); stopTheme(); input.dispose(); ime.dispose(); terminal.dispose();
+      output.dispose(); parsed.clear(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
+      cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
+      terminal.textarea?.removeEventListener("blur", syncCursor); ime.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
     },
   };
