@@ -97,6 +97,10 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     pendingRenderParsed = false;
     for (const listener of renderedListeners) listener(durationMs);
   });
+  const refresh = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
+  const captureWindow = container.ownerDocument.defaultView;
+  const prepareCapture = () => refresh();
+  captureWindow?.addEventListener("soksak:capture-prepare", prepareCapture);
   const output = createCoalescedXtermWriter(
     (bytes, complete) => terminal.write(bytes, complete),
     notifyParsed,
@@ -120,7 +124,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     applySnapshot: async (snapshot) => {
       if (typeof snapshot.paint !== "string") throw new Error("terminal snapshot has no paint");
       await writeOutput(decodeBase64(snapshot.paint as string));
-      terminal.refresh(0, Math.max(0, terminal.rows - 1));
+      refresh();
     },
     writeOutput,
     onRendered(callback) {
@@ -131,7 +135,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
-    refresh: () => terminal.refresh(0, Math.max(0, terminal.rows - 1)),
+    refresh,
     async benchmark(request) {
       const payload = createRendererPayload(request.mode, request.bytes);
       const samplesMs: number[] = [];
@@ -149,6 +153,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
+      captureWindow?.removeEventListener("soksak:capture-prepare", prepareCapture);
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
