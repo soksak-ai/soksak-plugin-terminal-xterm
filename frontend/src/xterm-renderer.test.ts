@@ -11,6 +11,9 @@ import {
 vi.stubGlobal("matchMedia", () => ({
   matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
 }));
+for (const [name, value] of Object.entries({
+  fg: "#eeeeec", card: "#1e1e1e", acc: "#ffffff", fg3: "#555753",
+})) document.documentElement.style.setProperty(`--${name}`, value);
 
 function mounted(): HTMLElement {
   const container = document.createElement("div");
@@ -21,6 +24,18 @@ function mounted(): HTMLElement {
 }
 
 describe("Xterm renderer adapter", () => {
+  it("uses the kit-owned public terminal theme surface", () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    const screen = presenter.root.querySelector<HTMLElement>('[data-node="terminal-screen"]')!;
+    expect(screen.style.color).toBe("var(--fg)");
+    expect(screen.style.backgroundColor).toBe("var(--card)");
+    expect(screen.style.getPropertyValue("--soksak-terminal-cursor")).toBe("var(--acc)");
+    expect(screen.style.getPropertyValue("--soksak-terminal-cursor-accent")).toBe("var(--card)");
+    expect(screen.style.getPropertyValue("--soksak-terminal-selection-background")).toBe("var(--fg3)");
+    expect(document.getElementById("soksak-plugin-terminal-xterm-style")?.textContent).not.toContain("var(--bg");
+    presenter.dispose();
+  });
+
   it("coalesces a daemon burst behind the in-flight parser write", () => {
     const writes: Array<{ bytes: Uint8Array; parsed: () => void }> = [];
     const completed = vi.fn();
