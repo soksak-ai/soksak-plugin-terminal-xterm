@@ -12,7 +12,7 @@
     "test": "node --test ../scripts/*.mjs && vitest run",
     "typecheck": "tsc --noEmit",
     "build": "node build.mjs",
-    "verify": "pnpm typecheck && pnpm test && pnpm build && git diff --exit-code -- ../main.js"
+    "verify": "pnpm typecheck && pnpm test && node build.mjs --check"
   },
   "dependencies": {
     "@soksak/soksak-contract-plugin-terminal": "https://github.com/soksak-ai/soksak-contract-plugin-terminal/releases/download/v0.0.6/soksak-contract-plugin-terminal-0.0.6-any.tgz",
