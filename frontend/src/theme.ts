@@ -1,8 +1,7 @@
-// The terminal has no palette of its own.
-//
-// Holding one is how a terminal ends up dark inside a light window: two
-// authorities for the same colour, and only the host hears that the theme
-// changed. These functions read the host's slots instead.
+import { TERMINAL_ANSI_PALETTE } from "@soksak/soksak-contract-plugin-terminal";
+
+// Default surface colours come from the host. ANSI colours come from the terminal behavior
+// contract. Xterm and frame renderers therefore decode the same indexed color into the same pixel.
 
 /** What xterm needs, expressed in the host's vocabulary. */
 export interface TerminalTheme {
@@ -12,6 +11,23 @@ export interface TerminalTheme {
   /** The glyph under the block cursor: the colour drawn behind it. */
   cursorAccent: string;
   selectionBackground: string;
+  black: string;
+  red: string;
+  green: string;
+  yellow: string;
+  blue: string;
+  magenta: string;
+  cyan: string;
+  white: string;
+  brightBlack: string;
+  brightRed: string;
+  brightGreen: string;
+  brightYellow: string;
+  brightBlue: string;
+  brightMagenta: string;
+  brightCyan: string;
+  brightWhite: string;
+  extendedAnsi: string[];
 }
 
 const slot = (root: HTMLElement, name: string): string =>
@@ -25,12 +41,21 @@ const slot = (root: HTMLElement, name: string): string =>
  */
 export function readTerminalTheme(root: HTMLElement = document.documentElement): TerminalTheme {
   const background = slot(root, "card");
+  const [
+    black, red, green, yellow, blue, magenta, cyan, white,
+    brightBlack, brightRed, brightGreen, brightYellow,
+    brightBlue, brightMagenta, brightCyan, brightWhite,
+  ] = TERMINAL_ANSI_PALETTE;
   return {
     background,
     foreground: slot(root, "fg"),
     cursor: slot(root, "acc"),
     cursorAccent: background,
     selectionBackground: slot(root, "fg3"),
+    black, red, green, yellow, blue, magenta, cyan, white,
+    brightBlack, brightRed, brightGreen, brightYellow,
+    brightBlue, brightMagenta, brightCyan, brightWhite,
+    extendedAnsi: [...TERMINAL_ANSI_PALETTE.slice(16)],
   };
 }
 
