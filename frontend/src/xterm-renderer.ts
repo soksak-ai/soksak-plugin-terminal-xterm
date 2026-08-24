@@ -56,7 +56,7 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
         Enter: "\r", Backspace: "\x7f", Tab: "\t",
         ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
       };
-      const value = sequences[event.key] ?? (event.defaultPrevented && event.key.length === 1 ? event.key : "");
+      const value = sequences[event.key] ?? (event.key.length === 1 ? event.key : "");
       if (value) void write(value);
     });
   };

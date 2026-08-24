@@ -138,8 +138,9 @@ describe("Xterm renderer adapter", () => {
     input.dispatchEvent(new InputEvent("input", {
       bubbles: true, inputType: "insertText", data: "x",
     }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "y" }));
     input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }));
-    await vi.waitFor(() => expect(send.mock.calls.map((call) => call[0])).toEqual(["x", "\r"]));
+    await vi.waitFor(() => expect(send.mock.calls.map((call) => call[0])).toEqual(["x", "y", "\r"]));
     presenter.dispose();
   });
 });
