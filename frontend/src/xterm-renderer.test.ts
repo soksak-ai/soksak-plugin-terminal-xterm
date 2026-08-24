@@ -2,7 +2,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/xterm";
 
-import { createCoalescedXtermWriter, createTerminalTextWait, createXtermPresenter } from "./xterm-renderer";
+import {
+  createCoalescedXtermWriter,
+  createTerminalTextWait,
+  createXtermRenderWorkMeasurement,
+  createXtermPresenter,
+} from "./xterm-renderer";
 
 vi.stubGlobal("matchMedia", () => ({
   matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {},
@@ -58,6 +63,26 @@ describe("Xterm renderer adapter", () => {
     writes[0].parsed();
     await live;
     expect(applied).toBe(true);
+  });
+
+  it("measures active render preparation without display callback wait", () => {
+    let now = 0;
+    const measurement = createXtermRenderWorkMeasurement(() => now);
+    const first = measurement.begin();
+    now = 2;
+    first();
+    now = 18;
+    expect(measurement.takeRendered()).toBe(2);
+    expect(measurement.takeRendered()).toBeNull();
+
+    const second = measurement.begin();
+    now = 19;
+    second();
+    const third = measurement.begin();
+    now = 22;
+    third();
+    now = 40;
+    expect(measurement.takeRendered()).toBe(4);
   });
 
   it("publishes the real Xterm render event separately from parser completion", async () => {
