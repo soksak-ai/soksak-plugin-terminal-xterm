@@ -14,6 +14,13 @@ test("the common kit exclusively owns terminal lifecycle and standard commands",
     assert.equal(activate.includes(forbidden), false, `activate.ts owns ${forbidden}`);
     assert.equal(renderer.includes(forbidden), false, `xterm-renderer.ts owns ${forbidden}`);
   }
-  assert.equal(renderer.includes("terminal.onRender"), false, "text waits must observe parser completion");
+  assert.equal((renderer.match(/terminal[.]onRender[(]/g) ?? []).length, 1, "one real render observer owns presentation timing");
+  const waitStart = renderer.indexOf("const waitForText = createTerminalTextWait(");
+  const waitEnd = renderer.indexOf("\n  const fit =", waitStart);
+  assert.notEqual(waitStart, -1, "renderer must declare its parser-completion text wait");
+  assert.notEqual(waitEnd, -1, "renderer text wait boundary must be inspectable");
+  const waitBoundary = renderer.slice(waitStart, waitEnd);
+  assert.equal(waitBoundary.includes("parsed.add(callback)"), true, "text waits must observe parser completion");
+  assert.equal(waitBoundary.includes("renderedListeners"), false, "text waits must not observe render events");
   assert.equal(renderer.includes("terminal.onWriteParsed"), false, "text waits must observe exact write completion");
 });
