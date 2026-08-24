@@ -25,9 +25,12 @@ Adapter는 MIT 라이선스의 `min-median-max/xterm-addon-webkit-ime` commit
 ## 검증
 
 ```sh
-cd frontend
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
-pnpm build
+make verify
 ```
+
+정확한 toolchain 정본은 `.node-version`, `frontend/package.json#engines.node`,
+`frontend/package.json#packageManager`입니다. Make는 frozen install 전에 Node architecture가
+다르거나 pnpm executable이 다른 버전에 위임된 환경을 거부합니다. 릴리스 Actions도 release
+train이 URL과 SHA-256으로 전달한 정확한 spec package를 통해 같은 Make owner proof를 실행합니다.
+WebKit IME addon은 package.json과 lockfile이 선언한 정확한 Git archive로만 소비하며, workflow가
+서로 다른 commit의 source를 별도로 checkout하지 않습니다.

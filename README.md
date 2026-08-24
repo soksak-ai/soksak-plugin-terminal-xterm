@@ -39,9 +39,12 @@ The adapter depends on `min-median-max/xterm-addon-webkit-ime` at commit
 ## Verification
 
 ```sh
-cd frontend
-pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm test
-pnpm build
+make verify
 ```
+
+`.node-version`, `frontend/package.json#engines.node`, and
+`frontend/package.json#packageManager` are the exact toolchain owners. Make rejects a mismatched
+Node architecture or a delegated pnpm executable before running the frozen install. Release Actions
+invoke the same Make owner proof through the exact spec package supplied by release-train URL and
+SHA-256 inputs. The WebKit IME addon is consumed only from the exact package.json/lockfile Git
+archive; the workflow does not perform a second, conflicting source checkout.
