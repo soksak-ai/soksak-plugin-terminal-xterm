@@ -69,7 +69,7 @@ describe("Xterm renderer adapter", () => {
     let now = 0;
     const frames: Array<() => void> = [];
     const measurement = createXtermRenderWorkMeasurement(
-      (callback) => { frames.push(callback); return () => undefined; },
+      (callback: () => void) => { frames.push(callback); return () => undefined; },
       () => now,
     );
     const first = measurement.begin();
