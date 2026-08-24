@@ -129,4 +129,17 @@ describe("Xterm renderer adapter", () => {
     expect(screen.dataset.cursorActive).toBe("true");
     presenter.dispose();
   });
+
+  it("accepts unconsumed public DOM text and special-key events exactly once", async () => {
+    const send = vi.fn();
+    const presenter = createXtermPresenter(mounted(), send);
+    const input = presenter.root.querySelector<HTMLTextAreaElement>('[data-node="terminal-input"]')!;
+    input.value = "x";
+    input.dispatchEvent(new InputEvent("input", {
+      bubbles: true, inputType: "insertText", data: "x",
+    }));
+    input.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }));
+    await vi.waitFor(() => expect(send.mock.calls.map((call) => call[0])).toEqual(["x", "\r"]));
+    presenter.dispose();
+  });
 });
