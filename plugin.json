@@ -21,7 +21,7 @@
     "terminal"
   ],
   "implements": [
-    { "id": "soksak-spec-plugin-terminal", "version": "0.0.5" }
+    { "id": "soksak-spec-plugin-terminal", "version": "0.0.6" }
   ],
   "contributes": {
     "commands": [
