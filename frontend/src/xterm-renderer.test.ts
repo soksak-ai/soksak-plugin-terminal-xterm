@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { Terminal } from "@xterm/xterm";
 
 import { createCoalescedXtermWriter, createTerminalTextWait, createXtermPresenter } from "./xterm-renderer";
 
@@ -69,6 +70,21 @@ describe("Xterm renderer adapter", () => {
     expect(samples.every((sample) => Number.isFinite(sample) && sample >= 0)).toBe(true);
     rendered.dispose();
     presenter.dispose();
+  });
+
+  it("redraws its retained surface for the shared capture transaction", () => {
+    const refresh = vi.spyOn(Terminal.prototype, "refresh");
+    const container = mounted();
+    const presenter = createXtermPresenter(container, vi.fn());
+    const before = refresh.mock.calls.length;
+
+    container.ownerDocument.defaultView!.dispatchEvent(new Event("soksak:capture-prepare"));
+    expect(refresh.mock.calls.length).toBe(before + 1);
+
+    presenter.dispose();
+    container.ownerDocument.defaultView!.dispatchEvent(new Event("soksak:capture-prepare"));
+    expect(refresh.mock.calls.length).toBe(before + 1);
+    refresh.mockRestore();
   });
 
   it("parses a 978-chunk daemon burst through the real Xterm buffer", async () => {
