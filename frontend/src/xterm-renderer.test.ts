@@ -114,4 +114,19 @@ describe("Xterm renderer adapter", () => {
     expect(send).not.toHaveBeenCalled();
     presenter.dispose();
   });
+
+  it("publishes cursor visibility, position, and active focus from Xterm", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    const screen = presenter.root.querySelector<HTMLElement>('[data-node="terminal-screen"]')!;
+    await presenter.writeOutput!(new TextEncoder().encode("A\x1b[?25l"));
+    expect(screen.dataset.cursorVisible).toBe("false");
+    expect(screen.dataset.cursorRow).toBe("0");
+    expect(screen.dataset.cursorColumn).toBe("1");
+    presenter.focus();
+    expect(screen.dataset.cursorActive).toBe("false");
+    await presenter.writeOutput!(new TextEncoder().encode("\x1b[?25h"));
+    expect(screen.dataset.cursorVisible).toBe("true");
+    expect(screen.dataset.cursorActive).toBe("true");
+    presenter.dispose();
+  });
 });
