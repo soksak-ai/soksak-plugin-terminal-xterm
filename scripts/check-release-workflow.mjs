@@ -9,6 +9,8 @@ const manifest = JSON.parse(fs.readFileSync(path.join(root, "plugin.json"), "utf
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "frontend/package.json"), "utf8"));
 const nodeVersion = fs.readFileSync(path.join(root, ".node-version"), "utf8").trim();
 const makefile = fs.readFileSync(path.join(root, "Makefile"), "utf8");
+const preflight = fs.readFileSync(path.join(root, "scripts/check-build-environment.sh"), "utf8");
+if (/pnpm_executable|pnpmExecutable/.test(preflight)) throw new Error("preflight must judge the effective repository-selected pnpm");
 const requireText = (value, label) => { if (!workflow.includes(value)) throw new Error(`release workflow is missing ${label}: ${value}`); };
 if (nodeVersion !== pkg.engines.node) throw new Error("Node owner file and package engine differ");
 for (const target of ["preflight", "prepare", "build", "verify"]) if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
