@@ -43,7 +43,24 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   const write = createSerialTerminalWriter(async (data) => { send(data); });
   const ime = new WebkitImeAddon({ onData: (data) => { void write(data); }, onDebug: () => undefined });
   terminal.loadAddon(ime);
-  const input = terminal.onData((data) => routeXtermData(ime, write, data));
+  let terminalInputSequence = 0;
+  const input = terminal.onData((data) => {
+    terminalInputSequence += 1;
+    routeXtermData(ime, write, data);
+  });
+  const keyFallback = (event: KeyboardEvent) => {
+    const before = terminalInputSequence;
+    queueMicrotask(() => {
+      if (terminalInputSequence !== before || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+      const sequences: Record<string, string> = {
+        Enter: "\r", Backspace: "\x7f", Tab: "\t",
+        ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
+      };
+      const value = sequences[event.key] ?? (event.defaultPrevented && event.key.length === 1 ? event.key : "");
+      if (value) void write(value);
+    });
+  };
+  terminal.textarea?.addEventListener("keydown", keyFallback, true);
   const parsed = new Set<() => void>();
   let cursorVisible = true;
   const syncCursor = () => {
@@ -112,7 +129,8 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     dispose() {
       output.dispose(); parsed.clear(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
-      terminal.textarea?.removeEventListener("blur", syncCursor); ime.dispose(); terminal.dispose();
+      terminal.textarea?.removeEventListener("blur", syncCursor);
+      terminal.textarea?.removeEventListener("keydown", keyFallback, true); ime.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
     },
   };
