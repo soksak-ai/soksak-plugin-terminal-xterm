@@ -59,6 +59,18 @@ describe("Xterm renderer adapter", () => {
     expect(applied).toBe(true);
   });
 
+  it("publishes the real Xterm render event separately from parser completion", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    const samples: number[] = [];
+    expect(presenter.onRendered).toBeTypeOf("function");
+    const rendered = presenter.onRendered!((durationMs) => { samples.push(durationMs); });
+    await presenter.writeOutput!(new TextEncoder().encode("VISIBLE"));
+    await vi.waitFor(() => expect(samples.length).toBeGreaterThan(0));
+    expect(samples.every((sample) => Number.isFinite(sample) && sample >= 0)).toBe(true);
+    rendered.dispose();
+    presenter.dispose();
+  });
+
   it("parses a 978-chunk daemon burst through the real Xterm buffer", async () => {
     const presenter = createXtermPresenter(mounted(), vi.fn());
     const tail = "SOKSAK_HIGH_OUTPUT_TAIL";
