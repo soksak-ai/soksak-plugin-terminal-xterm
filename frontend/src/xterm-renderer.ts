@@ -63,7 +63,12 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   terminal.textarea?.addEventListener("keydown", keyFallback, true);
   const parsed = new Set<() => void>();
   const renderedListeners = new Set<(durationMs: number) => void>();
-  const renderWork = createXtermRenderWorkMeasurement();
+  const captureWindow = container.ownerDocument.defaultView;
+  if (!captureWindow) throw new Error("terminal document has no display clock");
+  const renderWork = createXtermRenderWorkMeasurement((callback) => {
+    const frame = captureWindow.requestAnimationFrame(() => callback());
+    return () => captureWindow.cancelAnimationFrame(frame);
+  });
   let cursorVisible = true;
   const syncCursor = () => {
     if (!screen) return;
@@ -94,9 +99,8 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     for (const listener of renderedListeners) listener(durationMs);
   });
   const refresh = () => terminal.refresh(0, Math.max(0, terminal.rows - 1));
-  const captureWindow = container.ownerDocument.defaultView;
   const prepareCapture = () => refresh();
-  captureWindow?.addEventListener("soksak:capture-prepare", prepareCapture);
+  captureWindow.addEventListener("soksak:capture-prepare", prepareCapture);
   const output = createCoalescedXtermWriter(
     (bytes, complete) => {
       const finishWork = renderWork.begin();
@@ -149,7 +153,8 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
       };
     },
     dispose() {
-      captureWindow?.removeEventListener("soksak:capture-prepare", prepareCapture);
+      captureWindow.removeEventListener("soksak:capture-prepare", prepareCapture);
+      renderWork.dispose();
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
@@ -159,29 +164,59 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   };
 }
 
-export function createXtermRenderWorkMeasurement(now: () => number = () => performance.now()): {
+export function createXtermRenderWorkMeasurement(
+  scheduleFrame: (callback: () => void) => () => void,
+  now: () => number = () => performance.now(),
+): {
   begin(): () => void;
   takeRendered(): number | null;
+  dispose(): void;
 } {
-  let durationMs = 0;
-  let completed = false;
+  let pendingWrites = 0;
+  let parsed = false;
+  let frameStartedAt: number | null = null;
+  let cancelFrame: (() => void) | null = null;
+  let disposed = false;
+  const arm = () => {
+    if (disposed || cancelFrame || (pendingWrites === 0 && !parsed)) return;
+    cancelFrame = scheduleFrame(() => {
+      cancelFrame = null;
+      if (disposed) return;
+      frameStartedAt = now();
+      arm();
+    });
+  };
   return {
     begin() {
-      const startedAt = now();
+      if (disposed) return () => undefined;
+      pendingWrites += 1;
+      arm();
       let ended = false;
       return () => {
         if (ended) return;
         ended = true;
-        durationMs += Math.max(0, now() - startedAt);
-        completed = true;
+        pendingWrites = Math.max(0, pendingWrites - 1);
+        parsed = true;
+        arm();
       };
     },
     takeRendered() {
-      if (!completed) return null;
-      const measured = durationMs;
-      durationMs = 0;
-      completed = false;
+      if (!parsed || frameStartedAt === null) return null;
+      const measured = Math.max(0, now() - frameStartedAt);
+      parsed = false;
+      if (pendingWrites === 0 && cancelFrame) {
+        cancelFrame();
+        cancelFrame = null;
+      }
       return measured;
+    },
+    dispose() {
+      disposed = true;
+      cancelFrame?.();
+      cancelFrame = null;
+      pendingWrites = 0;
+      parsed = false;
+      frameStartedAt = null;
     },
   };
 }
