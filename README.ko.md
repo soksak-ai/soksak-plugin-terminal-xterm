@@ -26,8 +26,18 @@ Adapter는 MIT 라이선스의 `min-median-max/xterm-addon-webkit-ime` commit
 
 ## 검증
 
+이 패키지는 `@soksak/soksak-contract-plugin-terminal`과 `@soksak/soksak-kit-plugin-terminal`에
+의존하므로, install을 수행하는 모든 `make` 호출은 make 명령줄의 `REGISTRY`를 요구합니다. 패키지가
+`https://registry.npmjs.org`에 게시된 뒤에도 같습니다. 환경 변수로 전달된 값은 거부됩니다. Makefile은
+`frontend/package.json`에서 이 요구를 읽고, 없으면
+`REGISTRY required: this package depends on @soksak/...`으로 거부합니다.
+
+빌드 입력의 정체성은 `REGISTRY`가 아니라 `pnpm-lock.yaml`의 integrity입니다. pnpm은 content-addressable
+store에 없는 integrity의 패키지만 `REGISTRY`에서 받으므로, 같은 기계에서 같은 lockfile을 다시 install하면
+store를 읽고 `REGISTRY`에 접속하지 않습니다.
+
 ```sh
-make verify
+make verify REGISTRY=http://host:port/
 ```
 
 정확한 toolchain 정본은 `.node-version`, `frontend/package.json#engines.node`,

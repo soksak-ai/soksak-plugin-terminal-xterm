@@ -40,8 +40,18 @@ The adapter depends on `min-median-max/xterm-addon-webkit-ime` at commit
 
 ## Verification
 
+The package depends on `@soksak/soksak-contract-plugin-terminal` and `@soksak/soksak-kit-plugin-terminal`,
+so every `make` invocation that installs requires `REGISTRY` on the make command line,
+`https://registry.npmjs.org` included once the packages are published there. A value from the
+environment is refused. The Makefile reads the requirement from `frontend/package.json` and refuses
+`REGISTRY required: this package depends on @soksak/...` when it is absent.
+
+The build input is identified by the `pnpm-lock.yaml` integrity, not by `REGISTRY`. pnpm fetches from
+`REGISTRY` only a package whose integrity its content-addressable store does not already hold, so a
+second install of the same lockfile on the same machine reads the store and never contacts `REGISTRY`.
+
 ```sh
-make verify
+make verify REGISTRY=http://host:port/
 ```
 
 `.node-version`, `frontend/package.json#engines.node`, and
