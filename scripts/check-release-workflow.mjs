@@ -19,7 +19,7 @@ for (const target of ["preflight", "prepare", "build", "verify"]) if (!new RegEx
 if (typeof manifest.spec === "string" || "schema" in manifest) throw new Error("plugin manifest repeats schema metadata");
 if (manifest.appVersionRequirement !== "0.0.1") throw new Error("plugin app version requirement must be exact 0.0.1");
 if (!Array.isArray(manifest.runtimeDependencies?.sidecars) || manifest.runtimeDependencies.sidecars.length !== 2) throw new Error("terminal plugins require two exact Sidecar releases");
-for (const sidecar of manifest.runtimeDependencies.sidecars) if (Object.keys(sidecar).sort().join(",") !== "id,sha256,size,url,version") throw new Error("Sidecar dependencies must use the common release reference");
+for (const sidecar of manifest.runtimeDependencies.sidecars) if (Object.keys(sidecar).sort().join(",") !== "id,version") throw new Error("Sidecar dependencies declare {id, version} only; size and sha256 belong to the release document");
 if (!/^\d+\.\d+\.\d+$/.test(pkg.engines?.node ?? "") || !/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager ?? "")) throw new Error("release toolchain must be exact");
 if ("pnpm" in pkg) throw new Error("pnpm 11 settings belong in pnpm-workspace.yaml");
 for (const obsolete of ["release/dependencies.json", "release/source-dependencies.json"]) {
