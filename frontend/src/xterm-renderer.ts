@@ -51,6 +51,9 @@ export function createXtermPresenter(
 ): XtermPresenter {
   const nodeName = (base: string) => (nodeSuffix === null ? base : `${base}/${nodeSuffix}`);
   container.dataset.node = nodeName("terminal-root");
+  // The pane clips what it paints and positions inside itself. Content that runs past the box makes
+  // an ancestor scroll, and what scrolls out of view is the screen the reader came for.
+  Object.assign(container.style, { overflow: "hidden", position: "relative" });
   injectStyles();
   const themeRoot = container.ownerDocument.documentElement;
   bindTerminalThemeSurface(container);

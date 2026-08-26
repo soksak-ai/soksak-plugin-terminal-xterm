@@ -207,3 +207,16 @@ describe("a driven composition", () => {
     presenter.dispose();
   });
 });
+
+// The pane clips what it paints. A pane that lets its content run past its box makes an ancestor
+// scroll, and what scrolls out of view is the screen the reader came for.
+describe("the pane box", () => {
+  it("clips its content and positions inside itself", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const presenter = createXtermPresenter(container, () => {}, "1");
+    expect(container.style.overflow).toBe("hidden");
+    expect(container.style.position).toBe("relative");
+    presenter.dispose();
+  });
+});
