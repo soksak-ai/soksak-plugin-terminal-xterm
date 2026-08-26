@@ -20,9 +20,15 @@ export function activate(context: ActivateContext): void {
   const viewParam = { type: "string", description: sentence("terminal.param.view") };
   activateProviderTerminalPlugin(app, context.subscriptions, {
     pluginId: "soksak-plugin-terminal-xterm",
-    engineId: "vt100",
+    engineId: "alacritty",
     ptySidecarId: "soksak-sidecar-pty",
-    terminalSidecarId: "soksak-sidecar-terminal-vt100",
+    terminalSidecarId: "soksak-sidecar-terminal-alacritty",
+    // The engine is the user's setting "engine" (manifest configuration); every engine offered here
+    // is a runtime dependency the manifest declares.
+    engines: {
+      setting: "engine",
+      sidecars: Object.fromEntries(["alacritty", "ghostty", "kitty", "shitty", "vt100", "wezterm"].map((engine) => [engine, `soksak-sidecar-terminal-${engine}`])),
+    },
     programId: "terminal-xterm",
     label: sentence("terminal.label"),
     renderer: createXtermRendererAdapter(),

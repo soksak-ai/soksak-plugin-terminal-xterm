@@ -8,7 +8,11 @@ describe("terminal plugin manifest contract", () => {
     expect(manifest).not.toHaveProperty("spec");
     expect(manifest.appVersionRequirement).toBe("0.0.1");
     expect(manifest.implements).toEqual([TERMINAL_PLUGIN_CONTRACT]);
-    expect(manifest.runtimeDependencies.sidecars.map((sidecar: { id: string }) => sidecar.id)).toEqual(["soksak-sidecar-pty", "soksak-sidecar-terminal-vt100"]);
+    // The engine is a user setting: every engine offered is a runtime dependency, alacritty is the default.
+    const engines = ["alacritty", "ghostty", "kitty", "shitty", "vt100", "wezterm"];
+    expect(manifest.runtimeDependencies.sidecars.map((sidecar: { id: string }) => sidecar.id)).toEqual(["soksak-sidecar-pty", ...engines.map((engine) => `soksak-sidecar-terminal-${engine}`)]);
+    const engine = manifest.configuration.find((setting: { key: string }) => setting.key === "engine");
+    expect(engine).toMatchObject({ type: "enum", enum: engines, default: "alacritty" });
     // A manifest dependency is intent: {id, version}. The release document carries the facts (size, sha256).
     for (const sidecar of manifest.runtimeDependencies.sidecars) expect(sidecar).toEqual({ id: expect.stringMatching(/^soksak-sidecar-[a-z0-9-]+$/), version: expect.stringMatching(/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/) });
     expect(validateTerminalPluginManifestCommands(manifest.contributes.commands)).toEqual([]);

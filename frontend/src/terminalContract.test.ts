@@ -107,7 +107,7 @@ describe("terminal plugin behavior contract", () => {
     const status = await commands.get("status")!({ view: "tab-contract" });
     expect(status).toMatchObject({
       pluginId: "soksak-plugin-terminal-xterm",
-      engineId: "vt100",
+      engineId: "alacritty",
       rendererId: "xterm",
       phase: "live",
       recoveryOutcome: "fresh",

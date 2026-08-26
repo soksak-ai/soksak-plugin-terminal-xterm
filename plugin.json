@@ -137,6 +137,17 @@
       }
     ]
   },
+  "configuration": [
+    {
+      "key": "engine",
+      "type": "enum",
+      "enum": ["alacritty", "ghostty", "kitty", "shitty", "vt100", "wezterm"],
+      "enumLabels": [{ "en": "Alacritty", "ko": "Alacritty" }, { "en": "Ghostty", "ko": "Ghostty" }, { "en": "kitty", "ko": "kitty" }, { "en": "shitty", "ko": "shitty" }, { "en": "VT100", "ko": "VT100" }, { "en": "WezTerm", "ko": "WezTerm" }],
+      "default": "alacritty",
+      "title": { "en": "Terminal engine", "ko": "터미널 엔진" },
+      "description": { "en": "The engine Sidecar a new terminal pane runs on. An open pane keeps its engine.", "ko": "새 터미널 pane이 사용하는 엔진 Sidecar. 이미 열린 pane은 엔진을 유지합니다." }
+    }
+  ],
   "runtimeDependencies": {
     "sidecars": [
       {
@@ -144,7 +155,27 @@
         "version": "0.0.8"
       },
       {
+        "id": "soksak-sidecar-terminal-alacritty",
+        "version": "0.0.14"
+      },
+      {
+        "id": "soksak-sidecar-terminal-ghostty",
+        "version": "0.0.14"
+      },
+      {
+        "id": "soksak-sidecar-terminal-kitty",
+        "version": "0.0.9"
+      },
+      {
+        "id": "soksak-sidecar-terminal-shitty",
+        "version": "0.0.9"
+      },
+      {
         "id": "soksak-sidecar-terminal-vt100",
+        "version": "0.0.13"
+      },
+      {
+        "id": "soksak-sidecar-terminal-wezterm",
         "version": "0.0.13"
       }
     ]
