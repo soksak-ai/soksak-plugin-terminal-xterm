@@ -21,18 +21,36 @@ function mounted(): HTMLElement {
 }
 
 describe("Xterm renderer adapter", () => {
-  it("does not duplicate a native key whose Xterm onData arrives after keydown", async () => {
+  it("leaves trusted native key ownership to Xterm when onData is delayed", () => {
     vi.useFakeTimers();
     try {
       let inputSequence = 0;
       const write = vi.fn(async () => {});
       const fallback = createXtermKeyFallback(() => inputSequence, write);
-      fallback.keydown(new KeyboardEvent("keydown", { key: "1" }));
-      queueMicrotask(() => { inputSequence += 1; });
+      fallback.keydown({
+        key: "1", isTrusted: true, isComposing: false,
+        ctrlKey: false, metaKey: false, altKey: false,
+      } as KeyboardEvent);
 
-      await Promise.resolve();
       vi.runAllTimers();
       expect(write).not.toHaveBeenCalled();
+      inputSequence += 1;
+      fallback.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back for an untrusted driven key Xterm does not consume", () => {
+    vi.useFakeTimers();
+    try {
+      const write = vi.fn(async () => {});
+      const fallback = createXtermKeyFallback(() => 0, write);
+      fallback.keydown(new KeyboardEvent("keydown", { key: "1" }));
+
+      vi.runAllTimers();
+      expect(write).toHaveBeenCalledOnce();
+      expect(write).toHaveBeenCalledWith("1");
       fallback.dispose();
     } finally {
       vi.useRealTimers();
