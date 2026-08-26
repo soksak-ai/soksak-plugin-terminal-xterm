@@ -64,8 +64,6 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
     bindTerminalThemeSurface(screen);
   }
   if (terminal.textarea) terminal.textarea.dataset.node = "terminal-input";
-  const recovery = document.createElement("span");
-  recovery.dataset.node = "terminal-restore-status"; recovery.hidden = true; container.append(recovery);
   container.dataset.terminalIme = "webkit";
 
   const write = createSerialTerminalWriter(async (data) => { send(data); });
