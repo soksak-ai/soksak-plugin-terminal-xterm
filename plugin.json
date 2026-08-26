@@ -319,7 +319,7 @@
     "sidecars": [
       {
         "id": "soksak-sidecar-pty",
-        "version": "0.0.10"
+        "version": "0.0.11"
       },
       {
         "id": "soksak-sidecar-terminal-alacritty",
