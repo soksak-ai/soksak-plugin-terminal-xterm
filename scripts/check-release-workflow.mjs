@@ -26,6 +26,8 @@ for (const obsolete of ["release/dependencies.json", "release/source-dependencie
   if (fs.existsSync(path.join(root, obsolete))) throw new Error(`${obsolete} is obsolete`);
 }
 requireText("release-template/verify-plugin-release.mjs", "repeatable owner proof");
+// The owner Makefile installs @soksak packages only from a command-line REGISTRY; the proof names the public registry.
+requireText('verify-plugin-release.mjs --commit "${{ github.sha }}" --out dist-release --registry https://registry.npmjs.org/', "owner proof registry");
 for (const value of ["spec_url:", "spec_sha256:", "${{ inputs.spec_url }}", "${{ inputs.spec_sha256 }}"]) requireText(value, "release-train input");
 if (workflow.includes("repository: soksak-ai/soksak-spec") || workflow.includes("repository: min-median-max/xterm-addon-webkit-ime")) throw new Error("release workflow must not checkout dependency source");
 requireText("release-template/publish-canonical-release.mjs", "canonical immutable publisher");

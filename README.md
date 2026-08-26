@@ -57,6 +57,7 @@ make verify REGISTRY=http://host:port/
 `.node-version`, `frontend/package.json#engines.node`, and
 `frontend/package.json#packageManager` are the exact toolchain owners. Make rejects a mismatched
 Node architecture or a delegated pnpm executable before running the frozen install. Release Actions
-invoke the same Make owner proof through the exact spec package supplied by release-train URL and
-SHA-256 inputs. The WebKit IME addon is consumed only from the exact package.json/lockfile Git
+run the same Make owner proof with `REGISTRY=https://registry.npmjs.org/`. The release train hands
+Actions the exact spec package (URL and SHA-256) as the verification tool; it is not a build input of
+the bundle. The WebKit IME addon is consumed only from the exact package.json/lockfile Git
 archive; the workflow does not perform a second, conflicting source checkout.
