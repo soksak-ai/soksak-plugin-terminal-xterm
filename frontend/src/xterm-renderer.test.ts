@@ -190,3 +190,20 @@ describe("Xterm renderer adapter", () => {
     presenter.dispose();
   });
 });
+
+// A composition's intermediate states are what the person is still typing; only the committed text
+// is input. A caller with no keyboard drives the same events the keyboard would.
+describe("a driven composition", () => {
+  it("emits the committed text once and reports it", async () => {
+    const sent: string[] = [];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const presenter = createXtermPresenter(container, (data) => sent.push(data), "1");
+    const emitted = presenter.compose!(["ㅎ", "하", "한"], "한");
+    expect(emitted).toBe(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sent).toEqual(["한"]);
+    presenter.dispose();
+  });
+});

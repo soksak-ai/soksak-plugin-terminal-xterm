@@ -164,6 +164,28 @@ export function createXtermPresenter(
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
+    // A caller with no keyboard drives the composition the input element would see: the updates
+    // change what is being composed, and the committed text is the one thing that reaches the pty.
+    compose(updates, data) {
+      const textarea = terminal.textarea;
+      if (!textarea) return 0;
+      const view = textarea.ownerDocument.defaultView;
+      const fire = (type: string, value: string) => {
+        const Composition = (view as unknown as { CompositionEvent: typeof CompositionEvent } | null)?.CompositionEvent ?? CompositionEvent;
+        textarea.dispatchEvent(new Composition(type, { data: value, bubbles: true }));
+      };
+      fire("compositionstart", "");
+      for (const update of updates) {
+        textarea.value = update;
+        fire("compositionupdate", update);
+      }
+      textarea.value = data;
+      fire("compositionend", data);
+      textarea.value = "";
+      if (!data) return 0;
+      void write(data);
+      return 1;
+    },
     refresh,
     async benchmark(request) {
       const payload = createRendererPayload(request.mode, request.bytes);
