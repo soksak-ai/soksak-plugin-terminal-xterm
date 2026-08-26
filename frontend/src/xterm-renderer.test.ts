@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createCoalescedXtermWriter,
   createTerminalTextWait,
+  createXtermKeyFallback,
   createXtermRenderWorkMeasurement,
   createXtermPresenter,
 } from "./xterm-renderer";
@@ -20,6 +21,24 @@ function mounted(): HTMLElement {
 }
 
 describe("Xterm renderer adapter", () => {
+  it("does not duplicate a native key whose Xterm onData arrives after keydown", async () => {
+    vi.useFakeTimers();
+    try {
+      let inputSequence = 0;
+      const write = vi.fn(async () => {});
+      const fallback = createXtermKeyFallback(() => inputSequence, write);
+      fallback.keydown(new KeyboardEvent("keydown", { key: "1" }));
+      queueMicrotask(() => { inputSequence += 1; });
+
+      await Promise.resolve();
+      vi.runAllTimers();
+      expect(write).not.toHaveBeenCalled();
+      fallback.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the kit-owned public terminal theme surface", () => {
     const presenter = createXtermPresenter(mounted(), vi.fn());
     const screen = presenter.root.querySelector<HTMLElement>('[data-node="terminal-screen"]')!;
