@@ -348,8 +348,10 @@ function decodeBase64(encoded: string): Uint8Array {
   const decoded = atob(encoded); return Uint8Array.from(decoded, (character) => character.charCodeAt(0));
 }
 
+// Reading answers what the pane shows: the last row is the one at the bottom of the viewport, so a
+// pane scrolled into history reads that history.
 function readScreen(terminal: Terminal, lines?: number): string {
-  const buffer = terminal.buffer.active; const last = buffer.baseY + terminal.rows;
+  const buffer = terminal.buffer.active; const last = buffer.viewportY + terminal.rows;
   const first = lines && lines > 0 ? Math.max(0, last - lines) : 0; const read: string[] = [];
   for (let row = first; row < last; row += 1) read.push(buffer.getLine(row)?.translateToString(true) ?? "");
   return read.join("\n");
