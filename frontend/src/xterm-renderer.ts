@@ -164,6 +164,14 @@ export function createXtermPresenter(
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
+    // The scrollback is the terminal's own. offset counts rows back into history, so it is the
+    // distance from the bottom, and the terminal's own position is what the caller is told.
+    scrollState: () => {
+      const buffer = terminal.buffer.active;
+      return { offset: Math.max(0, buffer.baseY - buffer.viewportY), historySize: buffer.baseY };
+    },
+    scrollLines: (lines) => { terminal.scrollLines(-lines); },
+    scrollTo: (offset) => { terminal.scrollToLine(Math.max(0, terminal.buffer.active.baseY - offset)); },
     // A caller with no keyboard drives the composition the input element would see: the updates
     // change what is being composed, and the committed text is the one thing that reaches the pty.
     compose(updates, data) {
