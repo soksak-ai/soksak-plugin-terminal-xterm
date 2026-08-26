@@ -226,7 +226,7 @@ export function createXtermKeyFallback(
   let disposed = false;
   return {
     keydown(event) {
-      if (disposed) return;
+      if (disposed || event.isTrusted) return;
       const before = inputSequence();
       const { key, isComposing, ctrlKey, metaKey, altKey } = event;
       let cancel = () => {};
