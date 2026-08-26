@@ -1,4 +1,5 @@
 import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal, type ITheme } from "@xterm/xterm";
 import {
   bindTerminalThemeSurface,
@@ -16,10 +17,12 @@ import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 import { createSerialTerminalWriter, routeXtermData } from "./input";
 import { createRendererPayload, summarizeRendererSamples, type RendererBenchmarkMode } from "./rendererBenchmark";
 import { injectStyles } from "./styles";
+import { attachXtermWebglRenderer, type XtermAddonHost, type XtermRendererKind } from "./webgl-renderer";
 
 export interface XtermBenchmarkRequest { mode: RendererBenchmarkMode; bytes: number; repetitions: number }
 export interface XtermPresenter extends TerminalPresenter {
   benchmark(request: XtermBenchmarkRequest): Promise<Record<string, unknown>>;
+  renderer(): XtermRendererKind;
 }
 
 export function createXtermRendererAdapter(): TerminalRendererAdapter {
@@ -71,6 +74,13 @@ export function createXtermPresenter(
     screen.setAttribute("aria-live", "polite");
     bindTerminalThemeSurface(screen);
   }
+  const renderer = screen
+    ? attachXtermWebglRenderer(
+        terminal as unknown as XtermAddonHost,
+        screen,
+        () => new WebglAddon(),
+      )
+    : null;
   if (terminal.textarea) terminal.textarea.dataset.node = nodeName("terminal-input");
   container.dataset.terminalIme = "webkit";
 
@@ -153,6 +163,7 @@ export function createXtermPresenter(
       return { dispose: () => { renderedListeners.delete(callback); } };
     },
     read: (lines) => readScreen(terminal, lines),
+    renderer: () => renderer?.kind() ?? "dom",
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
@@ -204,6 +215,7 @@ export function createXtermPresenter(
       };
     },
     dispose() {
+      renderer?.dispose();
       renderWork.dispose();
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
