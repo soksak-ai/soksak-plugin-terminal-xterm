@@ -82,19 +82,8 @@ export function createXtermPresenter(
     terminalInputSequence += 1;
     routeXtermData(ime, write, data);
   });
-  const keyFallback = (event: KeyboardEvent) => {
-    const before = terminalInputSequence;
-    queueMicrotask(() => {
-      if (terminalInputSequence !== before || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
-      const sequences: Record<string, string> = {
-        Enter: "\r", Backspace: "\x7f", Tab: "\t",
-        ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
-      };
-      const value = sequences[event.key] ?? (event.key.length === 1 ? event.key : "");
-      if (value) void write(value);
-    });
-  };
-  terminal.textarea?.addEventListener("keydown", keyFallback, true);
+  const keyFallback = createXtermKeyFallback(() => terminalInputSequence, write);
+  terminal.textarea?.addEventListener("keydown", keyFallback.keydown, true);
   const parsed = new Set<() => void>();
   const renderedListeners = new Set<(durationMs: number) => void>();
   const captureWindow = container.ownerDocument.defaultView;
@@ -219,8 +208,45 @@ export function createXtermPresenter(
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
-      terminal.textarea?.removeEventListener("keydown", keyFallback, true); ime.dispose(); terminal.dispose();
+      terminal.textarea?.removeEventListener("keydown", keyFallback.keydown, true); keyFallback.dispose(); ime.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
+    },
+  };
+}
+
+export function createXtermKeyFallback(
+  inputSequence: () => number,
+  write: (data: string) => Promise<void>,
+  schedule: (callback: () => void) => () => void = (callback) => {
+    const timer = setTimeout(callback, 0);
+    return () => clearTimeout(timer);
+  },
+): { keydown(event: KeyboardEvent): void; dispose(): void } {
+  const pending = new Set<() => void>();
+  let disposed = false;
+  return {
+    keydown(event) {
+      if (disposed) return;
+      const before = inputSequence();
+      const { key, isComposing, ctrlKey, metaKey, altKey } = event;
+      let cancel = () => {};
+      cancel = schedule(() => {
+        pending.delete(cancel);
+        if (disposed || inputSequence() !== before || isComposing || ctrlKey || metaKey || altKey) return;
+        const sequences: Record<string, string> = {
+          Enter: "\r", Backspace: "\x7f", Tab: "\t",
+          ArrowUp: "\x1b[A", ArrowDown: "\x1b[B", ArrowRight: "\x1b[C", ArrowLeft: "\x1b[D",
+        };
+        const value = sequences[key] ?? (key.length === 1 ? key : "");
+        if (value) void write(value);
+      });
+      pending.add(cancel);
+    },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      for (const cancel of pending) cancel();
+      pending.clear();
     },
   };
 }
