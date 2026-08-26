@@ -20,7 +20,6 @@
     "@soksak/soksak-contract-plugin-terminal": "0.0.8",
     "@soksak/soksak-kit-plugin-terminal": "0.0.55",
     "@xterm/addon-fit": "0.11.0",
-    "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "6.0.0",
     "xterm-addon-webkit-ime": "github:min-median-max/xterm-addon-webkit-ime#abcf111906bea95d09d5b20da4ffb6c771e59ef6"
   },
