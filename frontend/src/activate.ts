@@ -40,13 +40,13 @@ export function activate(context: ActivateContext): void {
           const cmd = typeof params.cmd === "string" ? params.cmd : "";
           if (!screen?.writable) return { sent: false };
           screen.send(`${cmd}\r`);
-          return { view: screen.pane, sent: cmd.length + 1 };
+          return { view: screen.view, pane: screen.pane, sent: cmd.length + 1 };
         },
       },
       {
         name: "cwd", params: { view: viewParam },
         handler(_params, screen) {
-          return { view: screen?.pane ?? null, cwd: screen ? app.terminal?.getCwd?.(screen.pane) ?? null : null };
+          return { view: screen?.view ?? null, pane: screen?.pane ?? null, cwd: screen ? app.terminal?.getCwd?.(screen.pane) ?? null : null };
         },
       },
       {
@@ -72,7 +72,7 @@ export function activate(context: ActivateContext): void {
           const measured = await (screen.presenter as XtermPresenter).benchmark({
             mode, bytes: Number(bytes), repetitions: Number(repetitions),
           });
-          return { view: screen.pane, ...measured };
+          return { view: screen.view, pane: screen.pane, ...measured };
         },
       },
     ],

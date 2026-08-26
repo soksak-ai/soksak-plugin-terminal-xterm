@@ -131,11 +131,13 @@ describe("terminal plugin behavior contract", () => {
       .toMatchObject({ phase: "live", recoveryOutcome: "fresh", fidelity: "complete" });
     expect(await commands.get("focus")!({ view: "tab-contract" }))
       .toMatchObject({ focused: true });
+    // The view owns terminal-root; every pane node carries that pane's suffix.
     expect(document.activeElement).toBe(
-      container.querySelector('[data-node="terminal-input"]'),
+      container.querySelector('[data-node="terminal-input/1"]'),
     );
     expect(container.dataset.node).toBe("terminal-root");
-    expect(container.querySelector('[data-node="terminal-screen"]')).not.toBeNull();
-    expect(container.querySelector('[data-node="terminal-restore-status"]')).not.toBeNull();
+    expect(container.querySelector('[data-node="terminal-screen/1"]')).not.toBeNull();
+    expect(container.querySelector('[data-node="terminal-restore-status/1"]')).not.toBeNull();
+    expect(container.dataset.paneCount).toBe("1");
   });
 });

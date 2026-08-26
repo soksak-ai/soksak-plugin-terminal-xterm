@@ -39,7 +39,7 @@ describe("terminal view focus boundary", () => {
 
     const controller = new AbortController();
     provider!.focus?.(container, {}, { signal: controller.signal });
-    expect(document.activeElement).toBe(container.querySelector('[data-node="terminal-input"]'));
+    expect(document.activeElement).toBe(container.querySelector('[data-node="terminal-input/1"]'));
     provider!.prepareFocusTransfer?.(container, {});
     expect(container.contains(document.activeElement)).toBe(false);
   });

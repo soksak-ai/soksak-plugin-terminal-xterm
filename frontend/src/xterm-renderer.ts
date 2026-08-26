@@ -25,7 +25,7 @@ export interface XtermPresenter extends TerminalPresenter {
 export function createXtermRendererAdapter(): TerminalRendererAdapter {
   return {
     delivery: "bytes", rendererId: "xterm", rendererProfile: "web",
-    create: (container, _pane, send) => createXtermPresenter(container, send),
+    create: (container, _pane, send, options) => createXtermPresenter(container, send, options?.nodeSuffix ?? null),
   };
 }
 
@@ -44,8 +44,13 @@ export function createXtermTheme(theme: TerminalPresentationTheme): ITheme {
   };
 }
 
-export function createXtermPresenter(container: HTMLElement, send: (data: string) => void): XtermPresenter {
-  container.dataset.node = "terminal-root";
+export function createXtermPresenter(
+  container: HTMLElement,
+  send: (data: string) => void,
+  nodeSuffix: string | null = null,
+): XtermPresenter {
+  const nodeName = (base: string) => (nodeSuffix === null ? base : `${base}/${nodeSuffix}`);
+  container.dataset.node = nodeName("terminal-root");
   injectStyles();
   const themeRoot = container.ownerDocument.documentElement;
   bindTerminalThemeSurface(container);
@@ -59,11 +64,11 @@ export function createXtermPresenter(container: HTMLElement, send: (data: string
   const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon); terminal.open(container);
   const screen = terminal.element;
   if (screen) {
-    screen.dataset.node = "terminal-screen"; screen.setAttribute("role", "log");
+    screen.dataset.node = nodeName("terminal-screen"); screen.setAttribute("role", "log");
     screen.setAttribute("aria-live", "polite");
     bindTerminalThemeSurface(screen);
   }
-  if (terminal.textarea) terminal.textarea.dataset.node = "terminal-input";
+  if (terminal.textarea) terminal.textarea.dataset.node = nodeName("terminal-input");
   container.dataset.terminalIme = "webkit";
 
   const write = createSerialTerminalWriter(async (data) => { send(data); });
