@@ -22,6 +22,12 @@ export interface XtermPresenter extends TerminalPresenter {
   benchmark(request: XtermBenchmarkRequest): Promise<Record<string, unknown>>;
 }
 
+const rendererLifecycle = { created: 0, disposed: 0, open: 0 };
+
+export function xtermRendererLifecycle(): Readonly<typeof rendererLifecycle> {
+  return { ...rendererLifecycle };
+}
+
 export function createXtermRendererAdapter(): TerminalRendererAdapter {
   return {
     delivery: "bytes", rendererId: "xterm", rendererProfile: "web",
@@ -49,6 +55,9 @@ export function createXtermPresenter(
   send: (data: string) => void,
   nodeSuffix: string | null = null,
 ): XtermPresenter {
+  rendererLifecycle.created += 1;
+  rendererLifecycle.open += 1;
+  let disposed = false;
   const nodeName = (base: string) => (nodeSuffix === null ? base : `${base}/${nodeSuffix}`);
   container.dataset.node = nodeName("terminal-root");
   // The pane clips what it paints and positions inside itself. Content that runs past the box makes
@@ -204,6 +213,10 @@ export function createXtermPresenter(
       };
     },
     dispose() {
+      if (disposed) return;
+      disposed = true;
+      rendererLifecycle.disposed += 1;
+      rendererLifecycle.open = Math.max(0, rendererLifecycle.open - 1);
       renderWork.dispose();
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);

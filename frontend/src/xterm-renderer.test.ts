@@ -7,6 +7,7 @@ import {
   createXtermKeyFallback,
   createXtermRenderWorkMeasurement,
   createXtermPresenter,
+  xtermRendererLifecycle,
 } from "./xterm-renderer";
 
 vi.stubGlobal("matchMedia", () => ({
@@ -21,6 +22,23 @@ function mounted(): HTMLElement {
 }
 
 describe("Xterm renderer adapter", () => {
+  it("reports one idempotently disposed presenter", () => {
+    const before = xtermRendererLifecycle();
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    expect(xtermRendererLifecycle()).toEqual({
+      created: before.created + 1,
+      disposed: before.disposed,
+      open: before.open + 1,
+    });
+    presenter.dispose();
+    presenter.dispose();
+    expect(xtermRendererLifecycle()).toEqual({
+      created: before.created + 1,
+      disposed: before.disposed + 1,
+      open: before.open,
+    });
+  });
+
   it("leaves trusted native key ownership to Xterm when onData is delayed", () => {
     vi.useFakeTimers();
     try {

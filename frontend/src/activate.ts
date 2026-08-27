@@ -2,7 +2,7 @@ import { activateProviderTerminalPlugin, type ProviderTerminalPluginHost } from 
 
 import { sentence, t } from "./i18n";
 import { manifest } from "./manifest";
-import { createXtermRendererAdapter, type XtermPresenter } from "./xterm-renderer";
+import { createXtermRendererAdapter, xtermRendererLifecycle, type XtermPresenter } from "./xterm-renderer";
 
 export interface TerminalHost extends ProviderTerminalPluginHost {
   locale(): string;
@@ -48,6 +48,13 @@ export function activate(context: ActivateContext): void {
         name: "cwd", params: { view: viewParam },
         handler(_params, screen) {
           return { view: screen?.view ?? null, pane: screen?.pane ?? null, cwd: screen ? app.terminal?.getCwd?.(screen.pane) ?? null : null };
+        },
+      },
+      {
+        name: "renderer.lifecycle",
+        params: {},
+        handler() {
+          return { renderer: "xterm", ...xtermRendererLifecycle() };
         },
       },
       {

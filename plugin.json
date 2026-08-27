@@ -4,7 +4,7 @@
     "en": "Xterm.js Terminal",
     "ko": "Xterm.js \ud130\ubbf8\ub110"
   },
-  "version": "0.0.29",
+  "version": "0.0.30",
   "appVersionRequirement": "0.0.1",
   "description": {
     "en": "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
@@ -190,6 +190,13 @@
         "title": {
           "en": "Measure renderer parser",
           "ko": "\ub80c\ub354\ub7ec \ud30c\uc11c \uce21\uc815"
+        }
+      },
+      {
+        "name": "renderer.lifecycle",
+        "title": {
+          "en": "Read renderer lifecycle",
+          "ko": "\ub80c\ub354\ub7ec \uc218\uba85 \uc77d\uae30"
         }
       }
     ],
