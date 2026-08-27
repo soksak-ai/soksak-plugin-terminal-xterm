@@ -21,6 +21,7 @@ import { injectStyles } from "./styles";
 export interface XtermBenchmarkRequest { mode: RendererBenchmarkMode; bytes: number; repetitions: number }
 export interface XtermPresenter extends TerminalPresenter {
   benchmark(request: XtermBenchmarkRequest): Promise<Record<string, unknown>>;
+  prepareCapture(): Promise<void>;
 }
 
 interface XtermWebglAddon extends ITerminalAddon {
@@ -122,6 +123,7 @@ export function createXtermPresenter(
   terminal.textarea?.addEventListener("keydown", keyFallback.keydown, true);
   const parsed = new Set<() => void>();
   const renderedListeners = new Set<(durationMs: number) => void>();
+  const captureWaiters = new Set<() => void>();
   const captureWindow = container.ownerDocument.defaultView;
   if (!captureWindow) throw new Error("terminal document has no display clock");
   const renderWork = createXtermRenderWorkMeasurement((callback) => {
@@ -223,6 +225,17 @@ export function createXtermPresenter(
       return 1;
     },
     refresh,
+    prepareCapture: () => new Promise<void>((resolve) => {
+      let subscription: IDisposable | undefined;
+      const finish = () => {
+        subscription?.dispose();
+        captureWaiters.delete(finish);
+        resolve();
+      };
+      captureWaiters.add(finish);
+      subscription = terminal.onRender(finish);
+      refresh();
+    }),
     async benchmark(request) {
       const payload = createRendererPayload(request.mode, request.bytes);
       const samplesMs: number[] = [];
@@ -245,6 +258,7 @@ export function createXtermPresenter(
       rendererLifecycle.disposed += 1;
       rendererLifecycle.open = Math.max(0, rendererLifecycle.open - 1);
       renderWork.dispose();
+      for (const finish of captureWaiters) finish();
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
