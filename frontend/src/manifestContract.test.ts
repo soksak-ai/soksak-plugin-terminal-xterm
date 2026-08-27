@@ -5,6 +5,8 @@ import { TERMINAL_PLUGIN_CONTRACT, validateTerminalPluginManifestCommands } from
 describe("terminal plugin manifest contract", () => {
   it("declares every common terminal command and may add implementation commands", () => {
     const manifest = JSON.parse(readFileSync(new URL("../../plugin.json", import.meta.url), "utf8"));
+    expect(manifest.id).toBe("soksak-plugin-terminal-xterm");
+    expect(manifest.name).toEqual({ en: "Xterm.js Terminal", ko: "Xterm.js 터미널" });
     expect(manifest).not.toHaveProperty("spec");
     expect(manifest.appVersionRequirement).toBe("0.0.1");
     expect(manifest.implements).toEqual([TERMINAL_PLUGIN_CONTRACT]);
