@@ -59,7 +59,7 @@ export function createXtermPresenter(
   container: HTMLElement,
   send: (data: string) => void,
   nodeSuffix: string | null = null,
-  createWebglAddon: () => XtermWebglAddon = () => new WebglAddon(true),
+  createWebglAddon: () => XtermWebglAddon = () => new WebglAddon(),
 ): XtermPresenter {
   rendererLifecycle.created += 1;
   rendererLifecycle.open += 1;
