@@ -181,6 +181,13 @@ describe("Xterm renderer adapter", () => {
     presenter.dispose();
   });
 
+  it("acknowledges capture after Xterm paints refreshed rows", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    expect(presenter.prepareCapture).toBeTypeOf("function");
+    await presenter.prepareCapture!();
+    presenter.dispose();
+  });
+
   it("parses a 978-chunk daemon burst through the real Xterm buffer", async () => {
     const presenter = createXtermPresenter(mounted(), vi.fn());
     const tail = "SOKSAK_HIGH_OUTPUT_TAIL";
