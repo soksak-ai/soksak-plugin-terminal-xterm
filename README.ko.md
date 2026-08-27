@@ -14,17 +14,10 @@ PTY 출력은 순서를 보존해 Xterm에 전달합니다. 한 번에 write 하
 출력은 다음 write 하나로 병합합니다. Snapshot과 live bytes는 같은 queue를 사용하며 text
 wait는 polling이나 render 사건이 아니라 정확한 Xterm write-completion callback을 관측합니다.
 
-## Renderer 메모리 계약
+## Renderer 메모리
 
-기본 renderer는 WebGL2입니다. 따라서 바뀐 행이 매 frame마다 DOM span을 교체하지 않습니다.
-WebGL2 생성이 실패하거나 context를 잃으면 Xterm의 DOM fallback으로 전환하고
-`data-renderer-refusal`에 이유를 노출합니다. Dispose는 Xterm teardown 전에
-`WEBGL_lose_context`로 WebGL context를 결정적으로 해제합니다.
-
-이 upstream 누락은 Xterm.js PR #6069가 소유합니다. Build는 정확한 addon 0.19.0의 검증된
-teardown 한 곳에 같은 표준 context release 한 줄을 적용하며 다른 shape는 거부합니다.
-#6069를 포함한 immutable addon release가 0.19.0을 대체하면 build transform을 제거합니다.
-Bundle 검증은 계속 `WEBGL_lose_context` 포함을 요구합니다.
+기본 renderer는 WebGL2입니다. 생성 실패나 context loss 시 DOM renderer로 전환하고 이유를
+`data-renderer-refusal`에 노출합니다. Dispose는 `WEBGL_lose_context`로 context를 해제합니다.
 
 ## WebKit IME 계약
 
