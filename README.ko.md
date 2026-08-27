@@ -34,7 +34,7 @@ Renderer가 WKWebView의 한글/CJK 조합 경계를 소유합니다. 표준 com
 활성인 동안 renderer는 `data-terminal-ime="webkit"`을 노출합니다.
 
 Adapter는 MIT 라이선스의 `min-median-max/xterm-addon-webkit-ime` commit
-`4d00ed700ee26f58250955f68bc8b552b2996645`에 의존합니다.
+`abcf111906bea95d09d5b20da4ffb6c771e59ef6`에 의존합니다.
 
 ## 검증
 

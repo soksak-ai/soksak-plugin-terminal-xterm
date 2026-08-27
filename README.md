@@ -48,7 +48,7 @@ The terminal host exposes `data-terminal-ime="webkit"` while this owner is
 active.
 
 The adapter depends on `min-median-max/xterm-addon-webkit-ime` at commit
-`4d00ed700ee26f58250955f68bc8b552b2996645` under its MIT license.
+`abcf111906bea95d09d5b20da4ffb6c771e59ef6` under its MIT license.
 
 ## Verification
 
