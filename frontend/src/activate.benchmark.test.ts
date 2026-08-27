@@ -99,4 +99,27 @@ describe("renderer benchmark command", () => {
     });
     expect(result).toMatchObject({ ok: false, code: "INVALID_PARAMS" });
   });
+
+  it("reports renderer ownership when no screen is targeted", async () => {
+    const commands = new Map<string, { handler: CommandHandler }>();
+    const host = {
+      ui: { registerView: () => ({ dispose() {} }) },
+      commands: {
+        register: (name: string, spec: Record<string, unknown>) => {
+          commands.set(name, spec as { handler: CommandHandler });
+          return { dispose() {} };
+        },
+      },
+      locale: () => "en",
+      windowLabel: () => "win-test",
+      pty: {},
+    } as unknown as TerminalHost;
+    activate({ app: host, subscriptions: [] });
+
+    const command = commands.get("renderer.lifecycle");
+    expect(command).toBeDefined();
+    const result = await command!.handler({});
+    expect(result).toMatchObject({ renderer: "xterm", created: expect.any(Number), disposed: expect.any(Number), open: expect.any(Number) });
+    expect(Number(result.open)).toBe(Number(result.created) - Number(result.disposed));
+  });
 });
