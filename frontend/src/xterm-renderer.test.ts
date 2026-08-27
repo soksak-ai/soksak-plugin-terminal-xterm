@@ -22,6 +22,27 @@ function mounted(): HTMLElement {
 }
 
 describe("Xterm renderer adapter", () => {
+  it("selects WebGL and falls back after context loss", () => {
+    let lost: (() => void) | null = null;
+    const dispose = vi.fn();
+    const addon = {
+      activate: vi.fn(),
+      dispose,
+      onContextLoss: vi.fn((listener: () => void) => {
+        lost = listener;
+        return { dispose: vi.fn() };
+      }),
+    };
+    const presenter = createXtermPresenter(mounted(), vi.fn(), null, () => addon);
+    expect(presenter.root.dataset.renderer).toBe("webgl");
+    lost!();
+    expect(presenter.root.dataset.renderer).toBe("dom");
+    expect(presenter.root.dataset.rendererRefusal).toBe("webgl-context-lost");
+    expect(dispose).toHaveBeenCalledOnce();
+    presenter.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it("reports one idempotently disposed presenter", () => {
     const before = xtermRendererLifecycle();
     const presenter = createXtermPresenter(mounted(), vi.fn());

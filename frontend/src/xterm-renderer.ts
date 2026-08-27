@@ -1,5 +1,6 @@
 import { FitAddon } from "@xterm/addon-fit";
-import { Terminal, type ITheme } from "@xterm/xterm";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { Terminal, type IDisposable, type ITerminalAddon, type ITheme } from "@xterm/xterm";
 import {
   bindTerminalThemeSurface,
   observeTerminalTheme,
@@ -20,6 +21,10 @@ import { injectStyles } from "./styles";
 export interface XtermBenchmarkRequest { mode: RendererBenchmarkMode; bytes: number; repetitions: number }
 export interface XtermPresenter extends TerminalPresenter {
   benchmark(request: XtermBenchmarkRequest): Promise<Record<string, unknown>>;
+}
+
+interface XtermWebglAddon extends ITerminalAddon {
+  onContextLoss(listener: () => void): IDisposable;
 }
 
 const rendererLifecycle = { created: 0, disposed: 0, open: 0 };
@@ -54,6 +59,7 @@ export function createXtermPresenter(
   container: HTMLElement,
   send: (data: string) => void,
   nodeSuffix: string | null = null,
+  createWebglAddon: () => XtermWebglAddon = () => new WebglAddon(),
 ): XtermPresenter {
   rendererLifecycle.created += 1;
   rendererLifecycle.open += 1;
@@ -74,6 +80,27 @@ export function createXtermPresenter(
     terminal.options.theme = createXtermTheme(readTerminalTheme(themeRoot));
   });
   const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon); terminal.open(container);
+  let webgl: XtermWebglAddon | null = null;
+  let webglLoss: IDisposable | null = null;
+  try {
+    const addon = createWebglAddon();
+    webgl = addon;
+    terminal.loadAddon(addon);
+    container.dataset.renderer = "webgl";
+    webglLoss = addon.onContextLoss(() => {
+      webglLoss?.dispose();
+      webglLoss = null;
+      addon.dispose();
+      if (webgl === addon) webgl = null;
+      container.dataset.renderer = "dom";
+      container.dataset.rendererRefusal = "webgl-context-lost";
+    });
+  } catch (reason) {
+    webgl?.dispose();
+    webgl = null;
+    container.dataset.renderer = "dom";
+    container.dataset.rendererRefusal = reason instanceof Error ? reason.message : String(reason);
+  }
   const screen = terminal.element;
   if (screen) {
     screen.dataset.node = nodeName("terminal-screen"); screen.setAttribute("role", "log");
@@ -221,7 +248,8 @@ export function createXtermPresenter(
       output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
-      terminal.textarea?.removeEventListener("keydown", keyFallback.keydown, true); keyFallback.dispose(); ime.dispose(); terminal.dispose();
+      terminal.textarea?.removeEventListener("keydown", keyFallback.keydown, true); keyFallback.dispose(); ime.dispose();
+      webglLoss?.dispose(); webgl?.dispose(); terminal.dispose();
       delete container.dataset.terminalIme; container.replaceChildren();
     },
   };

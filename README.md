@@ -14,6 +14,18 @@ PTY output is serialized into Xterm. One write may be in flight and output that 
 coalesced into the next ordered write. Snapshot and live bytes use the same queue, and text waits
 observe exact Xterm write-completion callbacks rather than polling or render events.
 
+## Renderer memory contract
+
+WebGL2 is the default renderer so a changing row does not replace its DOM spans on every frame. If
+WebGL2 creation fails or the context is lost, the renderer switches to Xterm's DOM fallback and
+publishes the reason through `data-renderer-refusal`. Dispose releases the WebGL context
+deterministically with `WEBGL_lose_context` before Xterm teardown.
+
+Xterm.js PR #6069 owns that missing upstream release. The build applies the same one-line standard
+context release to exact addon version 0.19.0 and refuses any other teardown shape. Remove the build
+transform when an immutable addon release containing #6069 replaces 0.19.0; bundle verification
+continues to require `WEBGL_lose_context`.
+
 ## Child environment contract
 
 `DefaultEnvironmentPolicy` removes inherited `NO_COLOR`, declares the xterm

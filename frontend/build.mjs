@@ -5,6 +5,7 @@
 // so an unbundled import fails at load with no path to look in.
 import { readFileSync } from "node:fs";
 import { build } from "esbuild";
+import { xtermWebglContextReleasePlugin } from "./xterm-webgl-context-release.mjs";
 
 const manifest = JSON.parse(readFileSync(new URL("../plugin.json", import.meta.url), "utf8"));
 const arguments_ = process.argv.slice(2);
@@ -26,6 +27,7 @@ const result = await build({
   // xterm CSS becomes a string so the whole plugin is one file. The host reads
   // the entry and nothing beside it.
   loader: { ".css": "text" },
+  plugins: [xtermWebglContextReleasePlugin()],
   outfile: output,
   legalComments: "none",
   logLevel: "info",
