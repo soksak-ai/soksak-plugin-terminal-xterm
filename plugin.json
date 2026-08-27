@@ -1,8 +1,8 @@
 {
   "id": "soksak-plugin-terminal-xterm",
   "name": {
-    "en": "Terminal",
-    "ko": "\ud130\ubbf8\ub110"
+    "en": "Xterm.js Terminal",
+    "ko": "Xterm.js \ud130\ubbf8\ub110"
   },
   "version": "0.0.29",
   "appVersionRequirement": "0.0.1",

@@ -1,6 +1,7 @@
 import { activateProviderTerminalPlugin, type ProviderTerminalPluginHost } from "@soksak/soksak-kit-plugin-terminal";
 
 import { sentence, t } from "./i18n";
+import { manifest } from "./manifest";
 import { createXtermRendererAdapter, type XtermPresenter } from "./xterm-renderer";
 
 export interface TerminalHost extends ProviderTerminalPluginHost {
@@ -30,7 +31,7 @@ export function activate(context: ActivateContext): void {
       sidecars: Object.fromEntries(["alacritty", "ghostty", "kitty", "shitty", "vt100", "wezterm"].map((engine) => [engine, `soksak-sidecar-terminal-${engine}`])),
     },
     programId: "terminal-xterm",
-    label: sentence("terminal.label"),
+    label: manifest.name,
     renderer: createXtermRendererAdapter(),
     extensions: [
       {

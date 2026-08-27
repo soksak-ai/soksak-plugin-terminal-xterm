@@ -70,10 +70,6 @@ const MESSAGES = {
     en: "Command line to run",
     ko: "실행할 명령 줄",
   },
-  "terminal.label": {
-    en: "Terminal",
-    ko: "터미널",
-  },
   "terminal.noSuchView": {
     en: "No terminal screen is open under that view id",
     ko: "그 뷰 id 로 열린 터미널 화면이 없습니다",
