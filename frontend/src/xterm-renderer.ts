@@ -155,6 +155,7 @@ export function createXtermPresenter(
     for (const listener of parsed) listener();
   };
   const rendered = terminal.onRender(() => {
+    for (const finish of [...captureWaiters]) finish();
     const durationMs = renderWork.takeRendered();
     if (durationMs === null) return;
     for (const listener of renderedListeners) listener(durationMs);
@@ -226,14 +227,11 @@ export function createXtermPresenter(
     },
     refresh,
     prepareCapture: () => new Promise<void>((resolve) => {
-      let subscription: IDisposable | undefined;
       const finish = () => {
-        subscription?.dispose();
         captureWaiters.delete(finish);
         resolve();
       };
       captureWaiters.add(finish);
-      subscription = terminal.onRender(finish);
       refresh();
     }),
     async benchmark(request) {
