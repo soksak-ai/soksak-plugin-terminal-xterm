@@ -17,8 +17,8 @@
     "verify": "pnpm typecheck && pnpm test && node build.mjs --check"
   },
   "dependencies": {
-    "@soksak/soksak-contract-plugin-terminal": "0.0.12",
-    "@soksak/soksak-kit-plugin-terminal": "0.0.70",
+    "@soksak/soksak-contract-plugin-terminal": "0.0.13",
+    "@soksak/soksak-kit-plugin-terminal": "0.0.71",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/addon-webgl": "0.19.0",
     "@xterm/xterm": "6.0.0",
