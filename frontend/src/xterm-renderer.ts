@@ -9,8 +9,7 @@ import {
   type TerminalRendererAdapter,
 } from "@soksak/soksak-kit-plugin-terminal";
 import {
-  TERMINAL_ANSI_PALETTE,
-  type TerminalPresentationTheme,
+  type TerminalThemePalette,
 } from "@soksak/soksak-contract-plugin-terminal";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 
@@ -41,18 +40,22 @@ export function createXtermRendererAdapter(): TerminalRendererAdapter {
   };
 }
 
-export function createXtermTheme(theme: TerminalPresentationTheme): ITheme {
+export function createXtermTheme(theme: TerminalThemePalette): ITheme {
   const [
     black, red, green, yellow, blue, magenta, cyan, white,
     brightBlack, brightRed, brightGreen, brightYellow,
     brightBlue, brightMagenta, brightCyan, brightWhite,
-  ] = TERMINAL_ANSI_PALETTE;
+  ] = theme.ansi;
   return {
-    ...theme,
+    foreground: theme.foreground,
+    background: theme.background,
+    cursor: theme.cursor,
+    cursorAccent: theme.cursorAccent,
+    selectionBackground: theme.selectionBackground,
     black, red, green, yellow, blue, magenta, cyan, white,
     brightBlack, brightRed, brightGreen, brightYellow,
     brightBlue, brightMagenta, brightCyan, brightWhite,
-    extendedAnsi: [...TERMINAL_ANSI_PALETTE.slice(16)],
+    extendedAnsi: [...theme.ansi.slice(16)],
   };
 }
 

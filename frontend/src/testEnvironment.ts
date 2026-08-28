@@ -5,4 +5,5 @@ if (typeof document !== "undefined") {
   for (const [name, value] of Object.entries({
     fg: "#eeeeec", card: "#1e1e1e", acc: "#ffffff", fg3: "#555753",
   })) document.documentElement.style.setProperty(`--${name}`, value);
+  document.documentElement.dataset.themeMode = "dark";
 }
