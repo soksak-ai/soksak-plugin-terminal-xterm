@@ -1,6 +1,7 @@
 SHELL := /bin/sh
 .PHONY: preflight guard prepare build verify require-tooling require-out require-store release attest
 registry_flags = --@soksak:registry=$(REGISTRY) --@soksak-ai:registry=$(REGISTRY) --config.minimum-release-age=0
+SDK_VERSION := 0.0.13
 # REGISTRY is accepted from the make command line only ($(origin) must be "command line").
 # GNU make's own environment channels (MAKEFLAGS, GNUMAKEFLAGS, MAKEFILES, -e) are outside this
 # Makefile's control and are not refused; setting them is a deliberate act of the caller.
@@ -28,7 +29,10 @@ require-tooling:
 	@tool="$$(command -v soksak-sdk)" || { echo 'soksak-sdk is not selected by PATH' >&2; exit 78; }; \
 		case "$$tool" in /*) ;; *) echo 'soksak-sdk PATH entry must be absolute' >&2; exit 78 ;; esac; \
 		root="$$(cd "$$(dirname "$$tool")/.." && pwd -P)"; \
-		test -f "$$tool" && test ! -L "$$tool" && test -f "$$root/release.json" && test ! -L "$$root/release.json" && test -d "$$root/.dependencies/soksak-spec" || { echo 'soksak-sdk PATH entry is not a prepared release' >&2; exit 78; }
+		test -f "$$tool" && test ! -L "$$tool" && test -f "$$root/release.json" && test ! -L "$$root/release.json" && test -d "$$root/.dependencies/soksak-spec" || { echo 'soksak-sdk PATH entry is not a prepared release' >&2; exit 78; }; \
+		sdk_package_version="$$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$$root/package.json")"; \
+		sdk_release_version="$$(node -e 'process.stdout.write(require(process.argv[1]).version)' "$$root/release.json")"; \
+		test "$$sdk_package_version" = "$(SDK_VERSION)" && test "$$sdk_release_version" = "$(SDK_VERSION)" || { echo "TOOLCHAIN_MISMATCH soksak-sdk required=$(SDK_VERSION) package=$$sdk_package_version release=$$sdk_release_version" >&2; exit 78; }
 
 require-out:
 	@case "$(origin OUT)" in "command line") ;; *) echo 'OUT must be an absolute command-line path to the complete release output' >&2; exit 64 ;; esac
