@@ -6,8 +6,8 @@ The common terminal kit owns view registration, PTY and recovery lifecycle, resi
 public status, terminal theme resolution, waits, and every command required by the terminal plugin
 contract. This plugin owns only the Xterm-specific renderer adapter, screen buffer, input and IME
 behavior, capture refresh, parser benchmark, and its optional `exec` and `cwd` commands. The adapter
-translates the kit's resolved five-role theme and the contract palette into Xterm option names; it
-does not read host theme tokens or define fallback colours. A repository boundary test rejects
+translates the kit's complete base palette into Xterm option names; the Kit publishes the four
+theme status axes through DOM, status and event. This adapter does not define fallback colours. A repository boundary test rejects
 reintroduction of plugin-owned lifecycle primitives or render-driven text waits.
 
 PTY output is serialized into Xterm. One write may be in flight and output that arrives behind it is
