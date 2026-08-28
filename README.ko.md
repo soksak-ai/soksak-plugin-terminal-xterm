@@ -50,7 +50,8 @@ make attest \
 ```
 
 로그인 프로필이 설치된 `soksak-sdk` 하나를 `PATH`에서 선택합니다. Make는 실행 파일 위치에서 그 설치의
-release document와 준비된 Spec을 도출하며 SDK path override를 받지 않습니다. `STORE`는 정확한 미공개
+release document와 준비된 Spec을 도출하며 SDK path override를 받지 않습니다. `SDK_VERSION`은 유일한
+요구 tooling version이며 설치된 두 manifest와 비교합니다. `STORE`는 정확한 미공개
 runtime dependency release를 제공합니다. 같은 명령은 동일한 완성 output을 보존하고 다른 byte를
 거부하며 component 소스 경로를 탐색하지 않습니다.
 

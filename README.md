@@ -65,6 +65,7 @@ make attest \
 
 The login profile selects one installed `soksak-sdk` on `PATH`. Make derives that installation's
 release document and prepared Spec from the executable location; it accepts no SDK path override.
+`SDK_VERSION` is the single required tooling version, checked against both installed manifests.
 `STORE` supplies exact unpublished runtime dependency releases. Repeating the command preserves an
 equal completed output and refuses different bytes; no component source path is discovered.
 
