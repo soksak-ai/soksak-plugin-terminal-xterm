@@ -192,6 +192,8 @@ export function createXtermPresenter(
       return { dispose: () => { renderedListeners.delete(callback); } };
     },
     read: (lines) => readScreen(terminal, lines),
+    selection: () => terminal.getSelection(),
+    modes: () => ({ bracketedPaste: terminal.modes.bracketedPasteMode }),
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
