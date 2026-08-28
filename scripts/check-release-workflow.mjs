@@ -15,7 +15,15 @@ const preflight = fs.readFileSync(path.join(root, "scripts/check-build-environme
 if (/pnpm_executable|pnpmExecutable/.test(preflight)) throw new Error("preflight must judge the effective repository-selected pnpm");
 const requireText = (value, label) => { if (!workflow.includes(value)) throw new Error(`release workflow is missing ${label}: ${value}`); };
 if (nodeVersion !== pkg.engines.node) throw new Error("Node owner file and package engine differ");
-for (const target of ["preflight", "prepare", "build", "verify"]) if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
+for (const target of ["preflight", "prepare", "build", "verify", "require-tooling", "require-out", "release", "attest"]) {
+  if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
+}
+for (const boundary of [
+  "SDK_ROOT", "SDK_RELEASE", "OUT", "bin/soksak-sdk.mjs",
+  ".dependencies/soksak-spec/release-template/verify-plugin-release.mjs",
+]) {
+  if (!makefile.includes(boundary)) throw new Error(`Makefile release boundary is missing: ${boundary}`);
+}
 if (typeof manifest.spec === "string" || "schema" in manifest) throw new Error("plugin manifest repeats schema metadata");
 if (manifest.appVersionRequirement !== "0.0.1") throw new Error("plugin app version requirement must be exact 0.0.1");
 if (!Array.isArray(manifest.runtimeDependencies?.sidecars) || manifest.runtimeDependencies.sidecars.length !== 7) throw new Error("the terminal requires the PTY and every engine Sidecar it offers (7 exact releases)");
