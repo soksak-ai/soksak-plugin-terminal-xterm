@@ -15,8 +15,14 @@ const preflight = fs.readFileSync(path.join(root, "scripts/check-build-environme
 if (/pnpm_executable|pnpmExecutable/.test(preflight)) throw new Error("preflight must judge the effective repository-selected pnpm");
 const requireText = (value, label) => { if (!workflow.includes(value)) throw new Error(`release workflow is missing ${label}: ${value}`); };
 if (nodeVersion !== pkg.engines.node) throw new Error("Node owner file and package engine differ");
-for (const target of ["preflight", "prepare", "build", "verify", "require-tooling", "require-out", "require-store", "release", "attest"]) {
+for (const target of ["preflight", "lock", "prepare", "build", "verify", "require-tooling", "require-out", "require-store", "release", "attest"]) {
   if (!new RegExp(`^${target}:`, "m").test(makefile)) throw new Error(`Makefile target is missing: ${target}`);
+}
+if (!/^lock: guard preflight$/m.test(makefile) || !makefile.includes("pnpm --dir frontend install --lockfile-only")) {
+  throw new Error("Makefile must own deterministic lockfile regeneration");
+}
+if (!read("README.md").includes("make lock REGISTRY=http://host:port/")) {
+  throw new Error("README must document the owner lockfile target");
 }
 for (const boundary of [
   "command -v soksak-sdk", "STORE", "OUT", "release.json", "--store",
