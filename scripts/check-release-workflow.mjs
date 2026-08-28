@@ -21,7 +21,7 @@ for (const target of ["preflight", "lock", "prepare", "build", "verify", "requir
 if (!/^lock: guard preflight$/m.test(makefile) || !makefile.includes("pnpm --dir frontend install --lockfile-only")) {
   throw new Error("Makefile must own deterministic lockfile regeneration");
 }
-if (!read("README.md").includes("make lock REGISTRY=http://host:port/")) {
+if (!fs.readFileSync(path.join(root, "README.md"), "utf8").includes("make lock REGISTRY=http://host:port/")) {
   throw new Error("README must document the owner lockfile target");
 }
 for (const boundary of [
