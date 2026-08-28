@@ -38,6 +38,20 @@ if (typeof manifest.spec === "string" || "schema" in manifest) throw new Error("
 if (manifest.appVersionRequirement !== "0.0.1") throw new Error("plugin app version requirement must be exact 0.0.1");
 if (!Array.isArray(manifest.runtimeDependencies?.sidecars) || manifest.runtimeDependencies.sidecars.length !== 7) throw new Error("the terminal requires the PTY and every engine Sidecar it offers (7 exact releases)");
 for (const sidecar of manifest.runtimeDependencies.sidecars) if (Object.keys(sidecar).sort().join(",") !== "id,version") throw new Error("Sidecar dependencies declare {id, version} only; size and sha256 belong to the release document");
+const projectNamedSidecarClosure = new Map([
+  ["soksak-sidecar-pty", "0.0.15"],
+  ["soksak-sidecar-terminal-alacritty", "0.0.26"],
+  ["soksak-sidecar-terminal-ghostty", "0.0.26"],
+  ["soksak-sidecar-terminal-kitty", "0.0.22"],
+  ["soksak-sidecar-terminal-shitty", "0.0.21"],
+  ["soksak-sidecar-terminal-vt100", "0.0.25"],
+  ["soksak-sidecar-terminal-wezterm", "0.0.25"],
+]);
+for (const sidecar of manifest.runtimeDependencies.sidecars) {
+  if (projectNamedSidecarClosure.get(sidecar.id) !== sidecar.version) {
+    throw new Error(`Sidecar ${sidecar.id} must select the project-named closure release ${projectNamedSidecarClosure.get(sidecar.id)}`);
+  }
+}
 if (!/^\d+\.\d+\.\d+$/.test(pkg.engines?.node ?? "") || !/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager ?? "")) throw new Error("release toolchain must be exact");
 if ("pnpm" in pkg) throw new Error("pnpm 11 settings belong in pnpm-workspace.yaml");
 for (const obsolete of ["release/dependencies.json", "release/source-dependencies.json"]) {
