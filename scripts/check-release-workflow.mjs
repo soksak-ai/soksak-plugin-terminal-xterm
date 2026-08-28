@@ -40,12 +40,12 @@ if (!Array.isArray(manifest.runtimeDependencies?.sidecars) || manifest.runtimeDe
 for (const sidecar of manifest.runtimeDependencies.sidecars) if (Object.keys(sidecar).sort().join(",") !== "id,version") throw new Error("Sidecar dependencies declare {id, version} only; size and sha256 belong to the release document");
 const projectNamedSidecarClosure = new Map([
   ["soksak-sidecar-pty", "0.0.16"],
-  ["soksak-sidecar-terminal-alacritty", "0.0.28"],
-  ["soksak-sidecar-terminal-ghostty", "0.0.28"],
-  ["soksak-sidecar-terminal-kitty", "0.0.24"],
-  ["soksak-sidecar-terminal-shitty", "0.0.23"],
-  ["soksak-sidecar-terminal-vt100", "0.0.27"],
-  ["soksak-sidecar-terminal-wezterm", "0.0.27"],
+  ["soksak-sidecar-terminal-alacritty", "0.0.30"],
+  ["soksak-sidecar-terminal-ghostty", "0.0.30"],
+  ["soksak-sidecar-terminal-kitty", "0.0.26"],
+  ["soksak-sidecar-terminal-shitty", "0.0.25"],
+  ["soksak-sidecar-terminal-vt100", "0.0.29"],
+  ["soksak-sidecar-terminal-wezterm", "0.0.29"],
 ]);
 for (const sidecar of manifest.runtimeDependencies.sidecars) {
   if (projectNamedSidecarClosure.get(sidecar.id) !== sidecar.version) {
