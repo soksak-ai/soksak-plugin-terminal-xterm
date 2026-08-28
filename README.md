@@ -58,15 +58,15 @@ second install of the same lockfile on the same machine reads the store and neve
 ```sh
 make verify REGISTRY=http://host:port/
 make attest \
-  SDK_ROOT=/absolute/extracted/soksak-sdk \
-  SDK_RELEASE=/absolute/soksak-sdk-release.json \
   OUT=/absolute/xterm-release-output \
+  STORE=/absolute/local-release-store \
   REGISTRY=http://host:port/
 ```
 
-The release command accepts only an extracted, digest-verified SDK release and its exact
-`release.json`. The SDK supplies its pinned Spec. Repeating the command preserves an equal completed
-output and refuses different bytes; no component source or workspace path is discovered.
+The login profile selects one installed `soksak-sdk` on `PATH`. Make derives that installation's
+release document and prepared Spec from the executable location; it accepts no SDK path override.
+`STORE` supplies exact unpublished runtime dependency releases. Repeating the command preserves an
+equal completed output and refuses different bytes; no component source path is discovered.
 
 `.node-version`, `frontend/package.json#engines.node`, and
 `frontend/package.json#packageManager` are the exact toolchain owners. Make rejects a mismatched

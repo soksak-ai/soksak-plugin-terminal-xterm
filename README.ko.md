@@ -44,15 +44,15 @@ store를 읽고 `REGISTRY`에 접속하지 않습니다.
 ```sh
 make verify REGISTRY=http://host:port/
 make attest \
-  SDK_ROOT=/absolute/extracted/soksak-sdk \
-  SDK_RELEASE=/absolute/soksak-sdk-release.json \
   OUT=/absolute/xterm-release-output \
+  STORE=/absolute/local-release-store \
   REGISTRY=http://host:port/
 ```
 
-릴리스 명령은 digest를 검증해 추출한 SDK 릴리스와 그 정확한 `release.json`만 받습니다. SDK가 자신이
-고정한 Spec을 제공합니다. 같은 명령은 동일한 완성 output을 보존하고 다른 byte를 거부하며, component
-소스나 workspace 경로를 탐색하지 않습니다.
+로그인 프로필이 설치된 `soksak-sdk` 하나를 `PATH`에서 선택합니다. Make는 실행 파일 위치에서 그 설치의
+release document와 준비된 Spec을 도출하며 SDK path override를 받지 않습니다. `STORE`는 정확한 미공개
+runtime dependency release를 제공합니다. 같은 명령은 동일한 완성 output을 보존하고 다른 byte를
+거부하며 component 소스 경로를 탐색하지 않습니다.
 
 정확한 toolchain 정본은 `.node-version`, `frontend/package.json#engines.node`,
 `frontend/package.json#packageManager`입니다. Make는 frozen install 전에 Node architecture가
