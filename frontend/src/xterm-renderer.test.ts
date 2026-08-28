@@ -259,6 +259,19 @@ describe("Xterm renderer adapter", () => {
     presenter.dispose();
   });
 
+  it("publishes Xterm selection and bracketed-paste mode to the common terminal Kit", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    expect(presenter.selection?.()).toBe("");
+    expect(presenter.modes?.()).toEqual({ bracketedPaste: false });
+
+    await presenter.writeOutput!(new TextEncoder().encode("\x1b[?2004h"));
+    expect(presenter.modes?.()).toEqual({ bracketedPaste: true });
+
+    await presenter.writeOutput!(new TextEncoder().encode("\x1b[?2004l"));
+    expect(presenter.modes?.()).toEqual({ bracketedPaste: false });
+    presenter.dispose();
+  });
+
   it("accepts unconsumed public DOM text and special-key events exactly once", async () => {
     const send = vi.fn();
     const presenter = createXtermPresenter(mounted(), send);
