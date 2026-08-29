@@ -12,8 +12,8 @@ importers:
         specifier: 0.0.17
         version: 0.0.17
       '@soksak/soksak-kit-plugin-terminal':
-        specifier: 0.0.89
-        version: 0.0.89(@soksak/soksak-contract-plugin-terminal@0.0.17)
+        specifier: 0.0.90
+        version: 0.0.90(@soksak/soksak-contract-plugin-terminal@0.0.17)
       '@xterm/addon-fit':
         specifier: 0.11.0
         version: 0.11.0
@@ -410,8 +410,8 @@ packages:
     resolution: {integrity: sha512-iP+75gZzI2AKVbllCWb0Htkq1Qk/3Dcw2HXSka+MhUaIxQmTYzK9LxPMa3Awsds+cq16tYyWuplwglST/k+Rlw==}
     engines: {node: 26.7.0}
 
-  '@soksak/soksak-kit-plugin-terminal@0.0.89':
-    resolution: {integrity: sha512-NwSgK9fYYF9KeRLUS75KSYO69g0kcGUeApnYn6JpYr+USd4wIWOCOs2+3g7AA0VuAzee/de0p2AwnFsF16kp8A==}
+  '@soksak/soksak-kit-plugin-terminal@0.0.90':
+    resolution: {integrity: sha512-sCow5noggQAhwosdZITiQpFoUxQGEusOK9CP2yvJjcuu5XJZ28XZP89muTrTCnr38gFNG63I2GbSfgVLzLt9ug==}
     engines: {node: 26.7.0}
     peerDependencies:
       '@soksak/soksak-contract-plugin-terminal': 0.0.17
@@ -1011,7 +1011,7 @@ snapshots:
 
   '@soksak/soksak-contract-plugin-terminal@0.0.17': {}
 
-  '@soksak/soksak-kit-plugin-terminal@0.0.89(@soksak/soksak-contract-plugin-terminal@0.0.17)':
+  '@soksak/soksak-kit-plugin-terminal@0.0.90(@soksak/soksak-contract-plugin-terminal@0.0.17)':
     dependencies:
       '@soksak/soksak-contract-plugin-terminal': 0.0.17
 
