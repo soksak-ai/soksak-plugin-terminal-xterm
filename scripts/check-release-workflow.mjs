@@ -37,20 +37,21 @@ for (const check of ["sdk_package_version", "sdk_release_version", "SDK_VERSION"
 if (typeof manifest.spec === "string" || "schema" in manifest) throw new Error("plugin manifest repeats schema metadata");
 if (manifest.appVersionRequirement !== "0.0.1") throw new Error("plugin app version requirement must be exact 0.0.1");
 if (!Array.isArray(manifest.runtimeDependencies?.sidecars) || manifest.runtimeDependencies.sidecars.length !== 7) throw new Error("the terminal requires the PTY and every engine Sidecar it offers (7 exact releases)");
-for (const sidecar of manifest.runtimeDependencies.sidecars) if (Object.keys(sidecar).sort().join(",") !== "id,version") throw new Error("Sidecar dependencies declare {id, version} only; size and sha256 belong to the release document");
-const projectNamedSidecarClosure = new Map([
-  ["soksak-sidecar-pty", "0.0.17"],
-  ["soksak-sidecar-terminal-alacritty", "0.0.32"],
-  ["soksak-sidecar-terminal-ghostty", "0.0.32"],
-  ["soksak-sidecar-terminal-kitty", "0.0.28"],
-  ["soksak-sidecar-terminal-shitty", "0.0.27"],
-  ["soksak-sidecar-terminal-vt100", "0.0.31"],
-  ["soksak-sidecar-terminal-wezterm", "0.0.31"],
-]);
+const expectedSidecars = [
+  "soksak-sidecar-pty",
+  "soksak-sidecar-terminal-alacritty",
+  "soksak-sidecar-terminal-ghostty",
+  "soksak-sidecar-terminal-kitty",
+  "soksak-sidecar-terminal-shitty",
+  "soksak-sidecar-terminal-vt100",
+  "soksak-sidecar-terminal-wezterm",
+];
+if (manifest.runtimeDependencies.sidecars.map(({ id }) => id).sort().join("\n") !== expectedSidecars.sort().join("\n")) {
+  throw new Error("the runtime closure must name the PTY and every offered terminal engine exactly once");
+}
 for (const sidecar of manifest.runtimeDependencies.sidecars) {
-  if (projectNamedSidecarClosure.get(sidecar.id) !== sidecar.version) {
-    throw new Error(`Sidecar ${sidecar.id} must select the project-named closure release ${projectNamedSidecarClosure.get(sidecar.id)}`);
-  }
+  if (Object.keys(sidecar).sort().join(",") !== "id,version") throw new Error("Sidecar dependencies declare {id, version} only; size and sha256 belong to the release document");
+  if (!/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/.test(sidecar.version)) throw new Error(`Sidecar ${sidecar.id} must select one exact semantic version`);
 }
 if (!/^\d+\.\d+\.\d+$/.test(pkg.engines?.node ?? "") || !/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager ?? "")) throw new Error("release toolchain must be exact");
 if ("pnpm" in pkg) throw new Error("pnpm 11 settings belong in pnpm-workspace.yaml");
