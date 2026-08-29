@@ -39,13 +39,13 @@ if (manifest.appVersionRequirement !== "0.0.1") throw new Error("plugin app vers
 if (!Array.isArray(manifest.runtimeDependencies?.sidecars) || manifest.runtimeDependencies.sidecars.length !== 7) throw new Error("the terminal requires the PTY and every engine Sidecar it offers (7 exact releases)");
 for (const sidecar of manifest.runtimeDependencies.sidecars) if (Object.keys(sidecar).sort().join(",") !== "id,version") throw new Error("Sidecar dependencies declare {id, version} only; size and sha256 belong to the release document");
 const projectNamedSidecarClosure = new Map([
-  ["soksak-sidecar-pty", "0.0.16"],
-  ["soksak-sidecar-terminal-alacritty", "0.0.30"],
-  ["soksak-sidecar-terminal-ghostty", "0.0.30"],
-  ["soksak-sidecar-terminal-kitty", "0.0.26"],
-  ["soksak-sidecar-terminal-shitty", "0.0.25"],
-  ["soksak-sidecar-terminal-vt100", "0.0.29"],
-  ["soksak-sidecar-terminal-wezterm", "0.0.29"],
+  ["soksak-sidecar-pty", "0.0.17"],
+  ["soksak-sidecar-terminal-alacritty", "0.0.31"],
+  ["soksak-sidecar-terminal-ghostty", "0.0.31"],
+  ["soksak-sidecar-terminal-kitty", "0.0.27"],
+  ["soksak-sidecar-terminal-shitty", "0.0.26"],
+  ["soksak-sidecar-terminal-vt100", "0.0.30"],
+  ["soksak-sidecar-terminal-wezterm", "0.0.30"],
 ]);
 for (const sidecar of manifest.runtimeDependencies.sidecars) {
   if (projectNamedSidecarClosure.get(sidecar.id) !== sidecar.version) {
