@@ -21,6 +21,7 @@ describe("terminal plugin manifest contract", () => {
     expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-alacritty")?.version).toBe("0.0.37");
     expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-ghostty")?.version).toBe("0.0.34");
     expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-kitty")?.version).toBe("0.0.31");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-shitty")?.version).toBe("0.0.30");
     expect(pkg.dependencies["@soksak/soksak-contract-plugin-terminal"]).toBe("0.0.17");
     expect(pkg.dependencies["@soksak/soksak-kit-plugin-terminal"]).toBe("0.0.80");
     expect(validateTerminalPluginManifestCommands(manifest.contributes.commands)).toEqual([]);
