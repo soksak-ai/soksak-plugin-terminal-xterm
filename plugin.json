@@ -2,13 +2,13 @@
   "id": "soksak-plugin-terminal-xterm",
   "name": {
     "en": "Xterm.js Terminal",
-    "ko": "Xterm.js \ud130\ubbf8\ub110"
+    "ko": "Xterm.js 터미널"
   },
-  "version": "0.0.50",
+  "version": "0.0.51",
   "appVersionRequirement": "0.0.1",
   "description": {
     "en": "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
-    "ko": "\uc2e4\uc81c \ub85c\uadf8\uc778 \uc178\uc5d0 \ubd99\ub294 \ud130\ubbf8\ub110 \ubdf0. \ub80c\ub354\ub9c1\uc740 xterm.js, \uc178\uc740 \ud638\uc2a4\ud2b8\uc758 PTY \uba85\ub839."
+    "ko": "실제 로그인 셸에 붙는 터미널 뷰. 렌더링은 xterm.js, 셸은 호스트의 PTY 명령."
   },
   "entry": "main.js",
   "permissions": [
@@ -34,28 +34,28 @@
         "name": "status",
         "title": {
           "en": "Terminal status",
-          "ko": "\ud130\ubbf8\ub110 \uc0c1\ud0dc"
+          "ko": "터미널 상태"
         }
       },
       {
         "name": "wait",
         "title": {
           "en": "Wait for terminal phase",
-          "ko": "\ud130\ubbf8\ub110 \ub2e8\uacc4 \ub300\uae30"
+          "ko": "터미널 단계 대기"
         }
       },
       {
         "name": "archive",
         "title": {
           "en": "Archive terminal state",
-          "ko": "\ud130\ubbf8\ub110 \uc0c1\ud0dc \ubcf4\uad00"
+          "ko": "터미널 상태 보관"
         }
       },
       {
         "name": "send",
         "title": {
           "en": "Send input",
-          "ko": "\uc785\ub825 \ubcf4\ub0b4\uae30"
+          "ko": "입력 보내기"
         },
         "danger": "inject"
       },
@@ -63,105 +63,105 @@
         "name": "read",
         "title": {
           "en": "Read the screen",
-          "ko": "\ud654\uba74 \uc77d\uae30"
+          "ko": "화면 읽기"
         }
       },
       {
         "name": "clear",
         "title": {
           "en": "Clear terminal",
-          "ko": "\ud130\ubbf8\ub110 \uc9c0\uc6b0\uae30"
+          "ko": "터미널 지우기"
         }
       },
       {
         "name": "focus",
         "title": {
           "en": "Focus terminal",
-          "ko": "\ud130\ubbf8\ub110 \ud3ec\ucee4\uc2a4"
+          "ko": "터미널 포커스"
         }
       },
       {
         "name": "recovery-status",
         "title": {
           "en": "Terminal recovery status",
-          "ko": "\ud130\ubbf8\ub110 \ubcf5\uc6d0 \uc0c1\ud0dc"
+          "ko": "터미널 복원 상태"
         }
       },
       {
         "name": "split",
         "title": {
           "en": "Split the terminal",
-          "ko": "\ud130\ubbf8\ub110 \ubd84\ud560"
+          "ko": "터미널 분할"
         }
       },
       {
         "name": "pane.close",
         "title": {
           "en": "Close a pane",
-          "ko": "pane \ub2eb\uae30"
+          "ko": "pane 닫기"
         }
       },
       {
         "name": "pane.focus",
         "title": {
           "en": "Focus a pane",
-          "ko": "pane \ud3ec\ucee4\uc2a4"
+          "ko": "pane 포커스"
         }
       },
       {
         "name": "pane.list",
         "title": {
           "en": "List panes",
-          "ko": "pane \ubaa9\ub85d"
+          "ko": "pane 목록"
         }
       },
       {
         "name": "pane.resize",
         "title": {
           "en": "Resize a pane",
-          "ko": "pane \ud06c\uae30 \uc870\uc808"
+          "ko": "pane 크기 조절"
         }
       },
       {
         "name": "pane.equalize",
         "title": {
           "en": "Equalize the panes",
-          "ko": "pane \uade0\ub4f1\ud654"
+          "ko": "pane 균등화"
         }
       },
       {
         "name": "pane.maximize",
         "title": {
           "en": "Maximize a pane",
-          "ko": "pane \ucd5c\ub300\ud654"
+          "ko": "pane 최대화"
         }
       },
       {
         "name": "pane.broadcast",
         "title": {
           "en": "Broadcast input to every pane",
-          "ko": "\ubaa8\ub4e0 pane\uc5d0 \uc785\ub825 \uc804\ub2ec"
+          "ko": "모든 pane에 입력 전달"
         }
       },
       {
         "name": "pane.title",
         "title": {
           "en": "Set a pane title",
-          "ko": "pane \uc81c\ubaa9 \uc124\uc815"
+          "ko": "pane 제목 설정"
         }
       },
       {
         "name": "scroll",
         "title": {
           "en": "Scroll the screen",
-          "ko": "\ud654\uba74 \uc2a4\ud06c\ub864"
+          "ko": "화면 스크롤"
         }
       },
       {
         "name": "selection",
         "title": {
           "en": "Read or copy the selection",
-          "ko": "\uc120\ud0dd \uc77d\uae30\u00b7\ubcf5\uc0ac"
+          "ko": "선택 읽기·복사"
         }
       },
       {
@@ -191,7 +191,7 @@
         "name": "input.compose",
         "title": {
           "en": "Compose input text",
-          "ko": "\uc785\ub825 \ud14d\uc2a4\ud2b8 \uc870\ud569"
+          "ko": "입력 텍스트 조합"
         },
         "danger": "inject"
       },
@@ -199,7 +199,7 @@
         "name": "exec",
         "title": {
           "en": "Run a command",
-          "ko": "\uba85\ub839 \uc2e4\ud589"
+          "ko": "명령 실행"
         },
         "danger": "inject"
       },
@@ -207,21 +207,21 @@
         "name": "cwd",
         "title": {
           "en": "Working directory",
-          "ko": "\uc791\uc5c5 \ub514\ub809\ud130\ub9ac"
+          "ko": "작업 디렉터리"
         }
       },
       {
         "name": "benchmark.parser",
         "title": {
           "en": "Measure renderer parser",
-          "ko": "\ub80c\ub354\ub7ec \ud30c\uc11c \uce21\uc815"
+          "ko": "렌더러 파서 측정"
         }
       },
       {
         "name": "renderer.lifecycle",
         "title": {
           "en": "Read renderer lifecycle",
-          "ko": "\ub80c\ub354\ub7ec \uc218\uba85 \uc77d\uae30"
+          "ko": "렌더러 수명 읽기"
         }
       }
     ],
@@ -230,21 +230,21 @@
         "id": "terminal-root",
         "description": {
           "en": "The terminal root",
-          "ko": "\ud130\ubbf8\ub110 \ub8e8\ud2b8"
+          "ko": "터미널 루트"
         }
       },
       {
         "id": "terminal-screen",
         "description": {
           "en": "The terminal screen",
-          "ko": "\ud130\ubbf8\ub110 \ud654\uba74"
+          "ko": "터미널 화면"
         }
       },
       {
         "id": "terminal-input",
         "description": {
           "en": "The terminal input",
-          "ko": "\ud130\ubbf8\ub110 \uc785\ub825"
+          "ko": "터미널 입력"
         }
       },
       {
@@ -258,21 +258,21 @@
         "id": "terminal-restore-status",
         "description": {
           "en": "The terminal recovery state",
-          "ko": "\ud130\ubbf8\ub110 \ubcf5\uc6d0 \uc0c1\ud0dc"
+          "ko": "터미널 복원 상태"
         }
       },
       {
         "id": "pane",
         "description": {
           "en": "One terminal pane",
-          "ko": "\ud130\ubbf8\ub110 pane \ud558\ub098"
+          "ko": "터미널 pane 하나"
         }
       },
       {
         "id": "gutter",
         "description": {
           "en": "The strip between two panes",
-          "ko": "\ub450 pane \uc0ac\uc774\uc758 \ub760"
+          "ko": "두 pane 사이의 띠"
         }
       }
     ],
@@ -281,7 +281,7 @@
         "id": "terminal-xterm",
         "title": {
           "en": "Terminal",
-          "ko": "\ud130\ubbf8\ub110"
+          "ko": "터미널"
         },
         "kind": "view",
         "view": "content"
@@ -292,7 +292,7 @@
         "id": "content",
         "title": {
           "en": "Terminal",
-          "ko": "\ud130\ubbf8\ub110"
+          "ko": "터미널"
         },
         "icon": ">_",
         "surfaces": [
@@ -346,11 +346,11 @@
       "default": "alacritty",
       "title": {
         "en": "Terminal engine",
-        "ko": "\ud130\ubbf8\ub110 \uc5d4\uc9c4"
+        "ko": "터미널 엔진"
       },
       "description": {
         "en": "The engine Sidecar a new terminal pane runs on. An open pane keeps its engine.",
-        "ko": "\uc0c8 \ud130\ubbf8\ub110 pane\uc774 \uc0ac\uc6a9\ud558\ub294 \uc5d4\uc9c4 Sidecar. \uc774\ubbf8 \uc5f4\ub9b0 pane\uc740 \uc5d4\uc9c4\uc744 \uc720\uc9c0\ud569\ub2c8\ub2e4."
+        "ko": "새 터미널 pane이 사용하는 엔진 Sidecar. 이미 열린 pane은 엔진을 유지합니다."
       }
     }
   ],
@@ -358,31 +358,31 @@
     "sidecars": [
       {
         "id": "soksak-sidecar-pty",
-        "version": "0.0.16"
+        "version": "0.0.17"
       },
       {
         "id": "soksak-sidecar-terminal-alacritty",
-        "version": "0.0.30"
+        "version": "0.0.31"
       },
       {
         "id": "soksak-sidecar-terminal-ghostty",
-        "version": "0.0.30"
+        "version": "0.0.31"
       },
       {
         "id": "soksak-sidecar-terminal-kitty",
-        "version": "0.0.26"
+        "version": "0.0.27"
       },
       {
         "id": "soksak-sidecar-terminal-shitty",
-        "version": "0.0.25"
+        "version": "0.0.26"
       },
       {
         "id": "soksak-sidecar-terminal-vt100",
-        "version": "0.0.29"
+        "version": "0.0.30"
       },
       {
         "id": "soksak-sidecar-terminal-wezterm",
-        "version": "0.0.29"
+        "version": "0.0.30"
       }
     ]
   }
