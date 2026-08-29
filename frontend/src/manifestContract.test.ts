@@ -18,12 +18,12 @@ describe("terminal plugin manifest contract", () => {
     expect(engine).toMatchObject({ type: "enum", enum: engines, default: "alacritty" });
     // A manifest dependency is intent: {id, version}. The release document carries the facts (size, sha256).
     for (const sidecar of manifest.runtimeDependencies.sidecars) expect(sidecar).toEqual({ id: expect.stringMatching(/^soksak-sidecar-[a-z0-9-]+$/), version: expect.stringMatching(/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/) });
-    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-alacritty")?.version).toBe("0.0.37");
-    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-ghostty")?.version).toBe("0.0.34");
-    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-kitty")?.version).toBe("0.0.31");
-    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-shitty")?.version).toBe("0.0.30");
-    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-vt100")?.version).toBe("0.0.33");
-    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-wezterm")?.version).toBe("0.0.33");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-alacritty")?.version).toBe("0.0.38");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-ghostty")?.version).toBe("0.0.35");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-kitty")?.version).toBe("0.0.32");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-shitty")?.version).toBe("0.0.31");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-vt100")?.version).toBe("0.0.34");
+    expect(manifest.runtimeDependencies.sidecars.find((sidecar: { id: string }) => sidecar.id === "soksak-sidecar-terminal-wezterm")?.version).toBe("0.0.34");
     expect(pkg.dependencies["@soksak/soksak-contract-plugin-terminal"]).toBe("0.0.17");
     expect(pkg.dependencies["@soksak/soksak-kit-plugin-terminal"]).toBe("0.0.80");
     expect(validateTerminalPluginManifestCommands(manifest.contributes.commands)).toEqual([]);
