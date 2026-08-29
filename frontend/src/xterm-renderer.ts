@@ -1,15 +1,16 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal, type IDisposable, type ITerminalAddon, type ITheme } from "@xterm/xterm";
+import { Terminal, type IDisposable, type IEffectiveTheme, type ITerminalAddon, type ITheme } from "@xterm/xterm";
 import {
   bindTerminalThemeSurface,
-  observeTerminalTheme,
   readTerminalTheme,
+  readTerminalThemeStatus,
   type TerminalPresenter,
   type TerminalRendererAdapter,
 } from "@soksak/soksak-kit-plugin-terminal";
 import {
-  type TerminalThemePalette,
+  resolveTerminalTheme,
+  type TerminalThemePalette, type TerminalThemeStatus,
 } from "@soksak/soksak-contract-plugin-terminal";
 import { WebkitImeAddon } from "xterm-addon-webkit-ime";
 
@@ -59,6 +60,35 @@ export function createXtermTheme(theme: TerminalThemePalette): ITheme {
   };
 }
 
+export function xtermThemeStatus(base: TerminalThemeStatus, effective: IEffectiveTheme): TerminalThemeStatus {
+  const color = (value: string, label: string) => {
+    const normalized = value.toLowerCase();
+    if (!/^#[0-9a-f]{6}$/.test(normalized)) throw new Error(`xterm effective ${label} is not #rrggbb`);
+    return normalized;
+  };
+  if (effective.ansi.length !== 256) throw new Error("xterm effective ANSI palette must have 256 colors");
+  const palette: TerminalThemePalette = {
+    foreground: color(effective.foreground, "foreground"),
+    background: color(effective.background, "background"),
+    cursor: color(effective.cursor, "cursor"),
+    cursorAccent: base.baseTheme.cursorAccent,
+    selectionBackground: base.baseTheme.selectionBackground,
+    ansi: effective.ansi.map((value, index) => color(value, `ansi[${index}]`)),
+  };
+  const terminalOverrides = {
+    foreground: palette.foreground === base.baseTheme.foreground ? null : palette.foreground,
+    background: palette.background === base.baseTheme.background ? null : palette.background,
+    cursor: palette.cursor === base.baseTheme.cursor ? null : palette.cursor,
+    ansi: palette.ansi.map((value, index) => value === base.baseTheme.ansi[index] ? null : value),
+  };
+  return {
+    themeMode: base.themeMode,
+    baseTheme: base.baseTheme,
+    terminalOverrides,
+    effectiveTheme: resolveTerminalTheme(base.baseTheme, terminalOverrides),
+  };
+}
+
 export function createXtermPresenter(
   container: HTMLElement,
   send: (data: string) => void,
@@ -76,12 +106,10 @@ export function createXtermPresenter(
   injectStyles();
   const themeRoot = container.ownerDocument.documentElement;
   bindTerminalThemeSurface(container);
+  let baseThemeStatus = readTerminalThemeStatus(themeRoot);
   const terminal = new Terminal({
     cursorBlink: true, convertEol: true, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
     fontSize: 13, theme: createXtermTheme(readTerminalTheme(themeRoot)),
-  });
-  const stopTheme = observeTerminalTheme(themeRoot, () => {
-    terminal.options.theme = createXtermTheme(readTerminalTheme(themeRoot));
   });
   const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon); terminal.open(container);
   let webgl: XtermWebglAddon | null = null;
@@ -197,6 +225,14 @@ export function createXtermPresenter(
     read: (lines) => readScreen(terminal, lines),
     selection: () => terminal.getSelection(),
     modes: () => ({ bracketedPaste: terminal.modes.bracketedPasteMode }),
+    themeStatus: () => {
+      const effective = terminal.effectiveTheme;
+      return effective ? xtermThemeStatus(baseThemeStatus, effective) : baseThemeStatus;
+    },
+    setTheme: (next) => {
+      baseThemeStatus = next;
+      terminal.options.theme = createXtermTheme(next.baseTheme);
+    },
     waitForText,
     focus: () => { terminal.focus(); return !!terminal.textarea && terminal.textarea.ownerDocument.activeElement === terminal.textarea; },
     prepareFocusTransfer: () => { ime.flushPending(); terminal.textarea?.blur(); },
@@ -262,7 +298,7 @@ export function createXtermPresenter(
       rendererLifecycle.open = Math.max(0, rendererLifecycle.open - 1);
       renderWork.dispose();
       for (const finish of captureWaiters) finish();
-      output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); stopTheme(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
+      output.dispose(); parsed.clear(); renderedListeners.clear(); rendered.dispose(); input.dispose(); cursorHidden.dispose(); cursorShown.dispose();
       cursorMoved.dispose(); terminal.textarea?.removeEventListener("focus", syncCursor);
       terminal.textarea?.removeEventListener("blur", syncCursor);
       terminal.textarea?.removeEventListener("keydown", keyFallback.keydown, true); keyFallback.dispose(); ime.dispose();
