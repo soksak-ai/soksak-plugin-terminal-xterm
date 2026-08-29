@@ -138,6 +138,11 @@ export function createXtermPresenter(
     screen.dataset.node = nodeName("terminal-screen"); screen.setAttribute("role", "log");
     screen.setAttribute("aria-live", "polite");
     bindTerminalThemeSurface(screen);
+    // xterm installs its pointer listeners on the concrete screen element, not on the outer
+    // terminal root. Expose that element so the host's public drag/input commands deliver events
+    // to the engine rather than dispatching them on an inert ancestor.
+    const pointerSurface = screen.querySelector<HTMLElement>(".xterm-screen");
+    if (pointerSurface) pointerSurface.dataset.node = nodeName("terminal-screen-surface");
   }
   if (terminal.textarea) terminal.textarea.dataset.node = nodeName("terminal-input");
   container.dataset.terminalIme = "webkit";

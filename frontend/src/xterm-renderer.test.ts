@@ -104,6 +104,7 @@ describe("Xterm renderer adapter", () => {
     expect(screen.style.getPropertyValue("--soksak-terminal-cursor")).toBe("var(--acc)");
     expect(screen.style.getPropertyValue("--soksak-terminal-cursor-accent")).toBe("var(--card)");
     expect(screen.style.getPropertyValue("--soksak-terminal-selection-background")).toBe("var(--fg3)");
+    expect(screen.querySelector<HTMLElement>('[data-node="terminal-screen-surface"]')).not.toBeNull();
     expect(document.getElementById("soksak-plugin-terminal-xterm-style")?.textContent).not.toContain("var(--bg");
     presenter.dispose();
   });
