@@ -17,6 +17,10 @@ const scopedDependencies = () => {
   }
   return found;
 };
+const scopedAliases = () => Object.entries(pkg.dependencies ?? {}).flatMap(([name, spec]) => {
+  const match = String(spec).match(/^npm:(@soksak(?:-ai)?\/[^@]+)@(\d+\.\d+\.\d+)$/);
+  return match ? [[name, match[1], match[2]]] : [];
+});
 
 test("package.json declares every @soksak dependency by exact version", () => {
   const found = scopedDependencies();
@@ -25,6 +29,7 @@ test("package.json declares every @soksak dependency by exact version", () => {
     "@soksak/soksak-kit-plugin-terminal",
   ]);
   for (const [section, name, spec] of found) assert.match(spec, /^\d+\.\d+\.\d+$/, `${section}.${name}`);
+  assert.deepEqual(scopedAliases(), [["@xterm/xterm", "@soksak/xterm", "6.0.0"]]);
 });
 
 test("pnpm-lock.yaml resolves @soksak packages by integrity without a tarball URL", () => {
@@ -32,10 +37,17 @@ test("pnpm-lock.yaml resolves @soksak packages by integrity without a tarball UR
   const resolutions = new Map(
     [...lockfile.matchAll(/^  '(@soksak(?:-ai)?\/[^@']+@[^'(]+)':\n    resolution: \{([^}]*)\}/gm)].map(([, key, resolution]) => [key, resolution]),
   );
-  assert.deepEqual([...resolutions.keys()].sort(), scopedDependencies().map(([, name, spec]) => `${name}@${spec}`).sort());
+  const expected = [
+    ...scopedDependencies().map(([, name, spec]) => `${name}@${spec}`),
+    ...scopedAliases().map(([, target, version]) => `${target}@${version}`),
+  ].sort();
+  assert.deepEqual([...resolutions.keys()].sort(), expected);
   for (const [key, resolution] of resolutions) assert.match(resolution, /^integrity: sha512-[A-Za-z0-9+/=]+$/, key);
   for (const [, name, spec] of scopedDependencies()) {
     assert.match(lockfile, new RegExp(`^      '${name}':\\n        specifier: ${spec.replaceAll(".", "[.]")}\\n`, "m"), name);
+  }
+  for (const [name, target, version] of scopedAliases()) {
+    assert.match(lockfile, new RegExp(`^      '${name}':\\n        specifier: npm:${target}@${version.replaceAll(".", "[.]")}\\n`, "m"), name);
   }
 });
 

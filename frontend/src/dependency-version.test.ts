@@ -8,7 +8,7 @@ import manifest from "../package.json";
 describe("Xterm runtime dependency", () => {
   it("uses the stable Xterm 6 API and its matching fit addon", () => {
     expect(manifest.dependencies["@xterm/xterm"]).toBe(
-      "github:min-median-max/xterm.js#11debd63fc291b03a7848eaf28737f97255572a7",
+      "npm:@soksak/xterm@6.0.0",
     );
     expect(manifest.dependencies["@xterm/addon-fit"]).toBe("0.11.0");
   });
