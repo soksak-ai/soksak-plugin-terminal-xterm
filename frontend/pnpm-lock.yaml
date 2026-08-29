@@ -9,11 +9,11 @@ importers:
   .:
     dependencies:
       '@soksak/soksak-contract-plugin-terminal':
-        specifier: 0.0.17
-        version: 0.0.17
+        specifier: 0.0.19
+        version: 0.0.19
       '@soksak/soksak-kit-plugin-terminal':
-        specifier: 0.0.92
-        version: 0.0.92(@soksak/soksak-contract-plugin-terminal@0.0.17)
+        specifier: 0.0.93
+        version: 0.0.93(@soksak/soksak-contract-plugin-terminal@0.0.19)
       '@xterm/addon-fit':
         specifier: 0.11.0
         version: 0.11.0
@@ -406,15 +406,15 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@soksak/soksak-contract-plugin-terminal@0.0.17':
-    resolution: {integrity: sha512-iP+75gZzI2AKVbllCWb0Htkq1Qk/3Dcw2HXSka+MhUaIxQmTYzK9LxPMa3Awsds+cq16tYyWuplwglST/k+Rlw==}
+  '@soksak/soksak-contract-plugin-terminal@0.0.19':
+    resolution: {integrity: sha512-yZNkBc0RnX2xDP0eA2SQGDydvyEqqz/iB9X7gRTMxkhFFyY+Vrz7PDDC32rF2MbMVxTegmI77W1yr/Cc/RoalQ==}
     engines: {node: 26.7.0}
 
-  '@soksak/soksak-kit-plugin-terminal@0.0.92':
-    resolution: {integrity: sha512-usnLLhd08XlmxIOd4Jznp6EmSsJ24Sf9djuK1uI1jokM5MpxeyZDlC4sjmcDjiTbU83w+4k+mVA6IoWU3C05Tg==}
+  '@soksak/soksak-kit-plugin-terminal@0.0.93':
+    resolution: {integrity: sha512-DryMgs9kJnoWOXa1Z+l3Mys7mjUW6QuYAlPyRtuisfphjn9eFZDCCb24qn1EZp0sGzGot5KkAH6CbsHGTJ7JYA==}
     engines: {node: 26.7.0}
     peerDependencies:
-      '@soksak/soksak-contract-plugin-terminal': 0.0.17
+      '@soksak/soksak-contract-plugin-terminal': 0.0.19
 
   '@soksak/xterm@6.0.0':
     resolution: {integrity: sha512-YVan4kD7Q5NCva/fVAO3DnNZv7Om1s3oeZibapDUHKlMzibfIQJfXP8IT2OYmYn3pZ4abxFAAQa8YdTZmxSelg==}
@@ -1009,11 +1009,11 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.62.4':
     optional: true
 
-  '@soksak/soksak-contract-plugin-terminal@0.0.17': {}
+  '@soksak/soksak-contract-plugin-terminal@0.0.19': {}
 
-  '@soksak/soksak-kit-plugin-terminal@0.0.92(@soksak/soksak-contract-plugin-terminal@0.0.17)':
+  '@soksak/soksak-kit-plugin-terminal@0.0.93(@soksak/soksak-contract-plugin-terminal@0.0.19)':
     dependencies:
-      '@soksak/soksak-contract-plugin-terminal': 0.0.17
+      '@soksak/soksak-contract-plugin-terminal': 0.0.19
 
   '@soksak/xterm@6.0.0': {}
 
