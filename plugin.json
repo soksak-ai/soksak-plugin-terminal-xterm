@@ -4,7 +4,7 @@
     "en": "Xterm.js Terminal",
     "ko": "Xterm.js 터미널"
   },
-  "version": "0.0.58",
+  "version": "0.0.59",
   "appVersionRequirement": "0.0.1",
   "description": {
     "en": "A terminal view backed by a real login shell. xterm.js renders; the host's PTY commands run the shell.",
@@ -370,7 +370,7 @@
       },
       {
         "id": "soksak-sidecar-terminal-kitty",
-        "version": "0.0.29"
+        "version": "0.0.31"
       },
       {
         "id": "soksak-sidecar-terminal-shitty",
