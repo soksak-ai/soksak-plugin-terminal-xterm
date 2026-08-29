@@ -108,6 +108,32 @@ describe("Xterm renderer adapter", () => {
     presenter.dispose();
   });
 
+  it("publishes Xterm's effective OSC colors and reset", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    await presenter.writeOutput!(new TextEncoder().encode(
+      "\x1b]4;1;#456789\x07\x1b]10;#123456\x07\x1b]11;#234567\x07\x1b]12;#345678\x07",
+    ));
+    expect(presenter.themeStatus!()).toMatchObject({
+      terminalOverrides: {
+        foreground: "#123456", background: "#234567", cursor: "#345678",
+        ansi: expect.arrayContaining([null, "#456789"]),
+      },
+      effectiveTheme: {
+        foreground: "#123456", background: "#234567", cursor: "#345678",
+      },
+    });
+    await presenter.writeOutput!(new TextEncoder().encode(
+      "\x1b]104;1\x07\x1b]110\x07\x1b]111\x07\x1b]112\x07",
+    ));
+    const reset = presenter.themeStatus!();
+    expect(reset.terminalOverrides.foreground).toBeNull();
+    expect(reset.terminalOverrides.background).toBeNull();
+    expect(reset.terminalOverrides.cursor).toBeNull();
+    expect(reset.terminalOverrides.ansi[1]).toBeNull();
+    expect(reset.effectiveTheme).toEqual(reset.baseTheme);
+    presenter.dispose();
+  });
+
   it("coalesces a daemon burst behind the in-flight parser write", () => {
     const writes: Array<{ bytes: Uint8Array; parsed: () => void }> = [];
     const completed = vi.fn();

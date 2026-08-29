@@ -1,4 +1,5 @@
 allowBuilds:
+  "@xterm/xterm@https://codeload.github.com/min-median-max/xterm.js/tar.gz/11debd63fc291b03a7848eaf28737f97255572a7": true
   esbuild: true
 # First-party packages ship through the local release train before any public
 # registry holds them; a release-age gate on our own scopes would query a
