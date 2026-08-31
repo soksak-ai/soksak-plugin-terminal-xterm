@@ -22,6 +22,7 @@ export interface XtermBenchmarkRequest { mode: RendererBenchmarkMode; bytes: num
 export interface XtermPresenter extends TerminalPresenter {
   benchmark(request: XtermBenchmarkRequest): Promise<Record<string, unknown>>;
   prepareCapture(): Promise<void>;
+  clear(): void;
 }
 
 interface XtermWebglAddon extends ITerminalAddon {
@@ -227,6 +228,10 @@ export function createXtermPresenter(
     applySnapshot: async (snapshot) => {
       if (typeof snapshot.paint !== "string") throw new Error("terminal snapshot has no paint");
       await writeOutput(decodeBase64(snapshot.paint as string));
+      refresh();
+    },
+    clear: () => {
+      terminal.clear();
       refresh();
     },
     writeOutput,
