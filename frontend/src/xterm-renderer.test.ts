@@ -311,6 +311,13 @@ describe("Xterm renderer adapter", () => {
     presenter.dispose();
   });
 
+  it("uses a hollow inactive cursor while retaining blink for the focused cursor", () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    const screen = presenter.root.querySelector<HTMLElement>('[data-node="terminal-screen"]')!;
+    expect(screen.dataset.cursorInactiveStyle).toBe("outline");
+    presenter.dispose();
+  });
+
   it("publishes Xterm selection and bracketed-paste mode to the common terminal Kit", async () => {
     const presenter = createXtermPresenter(mounted(), vi.fn());
     expect(presenter.selection?.()).toBe("");

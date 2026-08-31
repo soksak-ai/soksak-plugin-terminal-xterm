@@ -109,7 +109,8 @@ export function createXtermPresenter(
   bindTerminalThemeSurface(container);
   let baseThemeStatus = readTerminalThemeStatus(themeRoot);
   const terminal = new Terminal({
-    cursorBlink: true, convertEol: true, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    cursorBlink: true, cursorInactiveStyle: "outline", convertEol: true,
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
     fontSize: 13, theme: createXtermTheme(readTerminalTheme(themeRoot)),
   });
   const fitAddon = new FitAddon(); terminal.loadAddon(fitAddon); terminal.open(container);
@@ -138,6 +139,7 @@ export function createXtermPresenter(
   if (screen) {
     screen.dataset.node = nodeName("terminal-screen"); screen.setAttribute("role", "log");
     screen.setAttribute("aria-live", "polite");
+    screen.dataset.cursorInactiveStyle = "outline";
     bindTerminalThemeSurface(screen);
     // xterm installs its pointer listeners on the concrete screen element, not on the outer
     // terminal root. Expose that element so the host's public drag/input commands deliver events
