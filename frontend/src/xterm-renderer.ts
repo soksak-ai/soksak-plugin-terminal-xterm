@@ -168,6 +168,7 @@ export function createXtermPresenter(
     return () => captureWindow.cancelAnimationFrame(frame);
   });
   let cursorVisible = true;
+  let clearBeforeLiveOutput = false;
   const syncCursor = () => {
     if (!screen) return;
     const focused = terminal.textarea?.ownerDocument.activeElement === terminal.textarea;
@@ -212,7 +213,19 @@ export function createXtermPresenter(
     },
     notifyParsed,
   );
-  const writeOutput = (bytes: Uint8Array) => output.writeAndWait(bytes);
+  const clearScreen = () => {
+    // Archived bytes belong to the previous shell. Reset the Xterm buffer so its scrollback
+    // cannot be read back together with the new session's first output.
+    terminal.reset();
+    refresh();
+  };
+  const writeOutput = async (bytes: Uint8Array) => {
+    if (clearBeforeLiveOutput) {
+      clearBeforeLiveOutput = false;
+      clearScreen();
+    }
+    await output.writeAndWait(bytes);
+  };
   const waitForText = createTerminalTextWait(
     () => readScreen(terminal),
     (callback) => { parsed.add(callback); return { dispose: () => { parsed.delete(callback); } }; },
@@ -225,14 +238,15 @@ export function createXtermPresenter(
 
   return {
     root: container, fit, size: () => ({ cols: terminal.cols, rows: terminal.rows }),
-    applySnapshot: async (snapshot) => {
+    applySnapshot: async (snapshot, archived) => {
       if (typeof snapshot.paint !== "string") throw new Error("terminal snapshot has no paint");
       await writeOutput(decodeBase64(snapshot.paint as string));
+      clearBeforeLiveOutput = archived;
       refresh();
     },
     clear: () => {
-      terminal.clear();
-      refresh();
+      clearBeforeLiveOutput = false;
+      clearScreen();
     },
     writeOutput,
     onRendered(callback) {

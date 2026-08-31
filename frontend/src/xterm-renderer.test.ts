@@ -270,6 +270,15 @@ describe("Xterm renderer adapter", () => {
     presenter.dispose();
   });
 
+  it("clears archived paint before the first live PTY bytes", async () => {
+    const presenter = createXtermPresenter(mounted(), vi.fn());
+    await presenter.applySnapshot!({ paint: btoa("ARCHIVED") }, true);
+    await presenter.writeOutput!(new TextEncoder().encode("LIVE"));
+    await vi.waitFor(() => expect(presenter.read()).toContain("LIVE"));
+    expect(presenter.read()).not.toContain("ARCHIVED");
+    presenter.dispose();
+  });
+
   it("owns only renderer focus, IME input, and benchmark behavior", async () => {
     const send = vi.fn();
     const container = mounted();
