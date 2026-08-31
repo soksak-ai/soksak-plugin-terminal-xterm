@@ -26,8 +26,9 @@ Renderer가 WKWebView의 한글/CJK 조합 경계를 소유합니다. 표준 com
 부분 자모 누출을 막고 확정된 텍스트와 뒤따르는 PTY 입력의 순서를 직렬화합니다. 이 소유자가
 활성인 동안 renderer는 `data-terminal-ime="webkit"`을 노출합니다.
 
-Adapter는 MIT 라이선스의 `min-median-max/xterm-addon-webkit-ime` commit
-`abcf111906bea95d09d5b20da4ffb6c771e59ef6`에 의존합니다.
+Adapter는 MIT 라이선스의 고정된 WebKit IME package commit
+`abcf111906bea95d09d5b20da4ffb6c771e59ef6`을 사용합니다. Lockfile이 package content를 고정하여
+기록되지 않은 교체를 막습니다.
 
 ## 검증
 

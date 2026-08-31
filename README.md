@@ -40,8 +40,9 @@ serializes finalized text with following PTY writes so input order cannot race.
 The terminal host exposes `data-terminal-ime="webkit"` while this owner is
 active.
 
-The adapter depends on `min-median-max/xterm-addon-webkit-ime` at commit
-`abcf111906bea95d09d5b20da4ffb6c771e59ef6` under its MIT license.
+The adapter uses the pinned WebKit IME package at commit
+`abcf111906bea95d09d5b20da4ffb6c771e59ef6` under its MIT license. The lockfile fixes the package
+content and prevents an unrecorded replacement.
 
 ## Verification
 
