@@ -229,6 +229,8 @@ export function createXtermPresenter(
     writeByteCount += bytes.length;
     container.dataset.terminalWriteCalls = String(writeCallCount);
     container.dataset.terminalWriteBytes = String(writeByteCount);
+    container.dataset.terminalLastWritePreview = new TextDecoder().decode(bytes)
+      .replace(/[^\x20-\x7e]/g, ".").slice(0, 240);
     if (clearBeforeLiveOutput) {
       clearBeforeLiveOutput = false;
       clearScreen();
