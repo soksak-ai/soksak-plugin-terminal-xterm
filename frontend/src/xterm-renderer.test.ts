@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
+import { Terminal } from "@xterm/xterm";
 
 import {
   createCoalescedXtermWriter,
@@ -206,6 +207,18 @@ describe("Xterm renderer adapter", () => {
     expect(samples.every((sample) => Number.isFinite(sample) && sample >= 0)).toBe(true);
     rendered.dispose();
     presenter.dispose();
+  });
+
+  it("refreshes rows after provider output so embedded views paint the delivered bytes", async () => {
+    const refresh = vi.spyOn(Terminal.prototype, "refresh");
+    try {
+      const presenter = createXtermPresenter(mounted(), vi.fn());
+      await presenter.writeOutput!(new TextEncoder().encode("PAINT_BOUNDARY"));
+      expect(refresh).toHaveBeenCalledWith(0, expect.any(Number));
+      presenter.dispose();
+    } finally {
+      refresh.mockRestore();
+    }
   });
 
   it("acknowledges capture after Xterm paints refreshed rows", async () => {

@@ -200,7 +200,14 @@ export function createXtermPresenter(
   const output = createCoalescedXtermWriter(
     (bytes, complete) => {
       const finishWork = renderWork.begin();
-      terminal.write(bytes, () => { finishWork(); complete(); });
+      terminal.write(bytes, () => {
+        // The provider stream can complete before Xterm schedules a paint in an embedded
+        // WebKit view. Refresh the affected rows at the renderer boundary so the public
+        // rendered event and capture path observe the same bytes that read() observes.
+        refresh();
+        finishWork();
+        complete();
+      });
     },
     notifyParsed,
   );
