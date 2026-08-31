@@ -169,6 +169,9 @@ export function createXtermPresenter(
   });
   let cursorVisible = true;
   let clearBeforeLiveOutput = false;
+  let writeCallCount = 0;
+  let writeByteCount = 0;
+  let resetCount = 0;
   const syncCursor = () => {
     if (!screen) return;
     const focused = terminal.textarea?.ownerDocument.activeElement === terminal.textarea;
@@ -217,9 +220,15 @@ export function createXtermPresenter(
     // Archived bytes belong to the previous shell. Reset the Xterm buffer so its scrollback
     // cannot be read back together with the new session's first output.
     terminal.reset();
+    resetCount += 1;
+    container.dataset.terminalResetCount = String(resetCount);
     refresh();
   };
   const writeOutput = async (bytes: Uint8Array) => {
+    writeCallCount += 1;
+    writeByteCount += bytes.length;
+    container.dataset.terminalWriteCalls = String(writeCallCount);
+    container.dataset.terminalWriteBytes = String(writeByteCount);
     if (clearBeforeLiveOutput) {
       clearBeforeLiveOutput = false;
       clearScreen();

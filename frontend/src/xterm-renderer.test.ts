@@ -271,11 +271,14 @@ describe("Xterm renderer adapter", () => {
   });
 
   it("clears archived paint before the first live PTY bytes", async () => {
-    const presenter = createXtermPresenter(mounted(), vi.fn());
+    const root = mounted();
+    const presenter = createXtermPresenter(root, vi.fn());
     await presenter.applySnapshot!({ paint: btoa("ARCHIVED") }, true);
     await presenter.writeOutput!(new TextEncoder().encode("LIVE"));
     await vi.waitFor(() => expect(presenter.read()).toContain("LIVE"));
     expect(presenter.read()).not.toContain("ARCHIVED");
+    expect(root.dataset.terminalWriteCalls).toBe("2");
+    expect(root.dataset.terminalResetCount).toBe("1");
     presenter.dispose();
   });
 
