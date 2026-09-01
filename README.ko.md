@@ -1,6 +1,6 @@
 # soksak-plugin-terminal-xterm
 
-`soksak-kit-plugin-terminal` 0.0.76에 Xterm renderer adapter를 제공하는 터미널 플러그인입니다.
+`soksak-kit-plugin-terminal` 0.0.105에 Xterm renderer adapter를 제공하는 터미널 플러그인입니다.
 
 공통 terminal kit가 view 등록, PTY 및 복원 수명 주기, 크기 변경 조정, 공개 상태, terminal
 theme 해석, wait와 터미널 플러그인 계약의 모든 표준 명령을 소유합니다. 이 플러그인은 Xterm

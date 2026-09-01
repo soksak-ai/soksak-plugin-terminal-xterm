@@ -25,7 +25,7 @@
   "implements": [
     {
       "id": "soksak-spec-plugin-terminal",
-      "version": "0.0.19"
+      "version": "0.0.22"
     }
   ],
   "contributes": {
@@ -186,6 +186,13 @@
           "ko": "파일·이미지 드롭"
         },
         "danger": "inject"
+      },
+      {
+        "name": "image.present",
+        "title": {
+          "en": "Present an inline image",
+          "ko": "인라인 이미지 표시"
+        }
       },
       {
         "name": "input.compose",

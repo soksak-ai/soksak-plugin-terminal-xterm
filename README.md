@@ -1,6 +1,6 @@
 # soksak-plugin-terminal-xterm
 
-Terminal plugin that supplies the Xterm renderer adapter to `soksak-kit-plugin-terminal` 0.0.79.
+Terminal plugin that supplies the Xterm renderer adapter to `soksak-kit-plugin-terminal` 0.0.105.
 
 The common terminal kit owns view registration, PTY and recovery lifecycle, resize coordination,
 public status, terminal theme resolution, waits, and every command required by the terminal plugin
